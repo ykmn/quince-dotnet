@@ -1,0 +1,40 @@
+name: Радио Краснодар
+filename: radio-krasnodar.yaml
+source:
+  type: stream
+  device_name: ''
+  device_index: -1
+  device_uid: ''
+  url: https://icecast-radiokrasnodar.cdnvideo.ru/radiokrasnodar_rdp_01
+  stream_type: icecast
+  hls_bitrate_index: 0
+  allow_http: false
+  allow_invalid_ssl: false
+  metadata_url: https://meta.fmgid.com/stations/radiokrasnodar/small.json
+  reconnect_delay_seconds: 3
+input_format:
+  sample_rate: 0
+  bit_depth: 0
+  channels: 0
+  bitrate: 0
+  codec: ''
+output_format:
+  mode: original
+  file_format: mp3
+  sample_rate: 48000
+  bit_depth: 16
+  channels: 2
+  bitrate_kbps: 96
+save_path: ''
+date_folder_format: YYYY-MM-DD
+file_name_format: hh-mm-ss
+file_duration_seconds: 3600
+record_audio: true
+retention_days: 30
+auto_start: false
+silence_detector:
+  enabled: false
+  threshold_dbfs: -60.0
+  trigger_seconds: 3.0
+  resume_seconds: 1.0
+metadata_path: ''

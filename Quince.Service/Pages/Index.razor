@@ -1,0 +1,42 @@
+@page "/"
+@using Quince.Service.Configuration
+@using Quince.Service.Services
+@inject ChannelManager ChannelManager
+
+<div class="filter-row">
+    <input @bind="FilterText" @bind:event="oninput" placeholder="Фильтр по названию канала…" />
+</div>
+
+@if (!FilteredChannels.Any())
+{
+    <p class="empty-state">
+        @if (!ChannelManager.Channels.Any())
+        {
+            <text>Каналы не настроены. Добавьте YAML-конфиги в папку config/.</text>
+        }
+        else
+        {
+            <text>Ничего не найдено по фильтру «@FilterText».</text>
+        }
+    </p>
+}
+else
+{
+    <div class="channel-list">
+        @foreach (var ch in FilteredChannels)
+        {
+            <ChannelCard Config="ch" />
+        }
+    </div>
+}
+
+<div class="app-footer">Каналов: @ChannelManager.Channels.Count</div>
+
+@code {
+    private string FilterText { get; set; } = "";
+
+    private IEnumerable<ChannelConfig> FilteredChannels =>
+        ChannelManager.Channels.Where(c =>
+            string.IsNullOrWhiteSpace(FilterText) ||
+            c.Name.Contains(FilterText, StringComparison.OrdinalIgnoreCase));
+}

@@ -1,0 +1,41 @@
+name: Ретро FM HLS
+filename: Ретро FM HLS.yaml
+source:
+  type: stream
+  device_name: ''
+  device_index: -1
+  device_uid: ''
+  url: https://hls-01-retro.emgsound.ru/12/playlist.m3u8
+  stream_type: hls
+  hls_bitrate_index: 0
+  allow_http: false
+  allow_invalid_ssl: false
+  metadata_url: 
+    https://hls-01-retro.emgsound.ru/12/metadata.json?format=fmgid&subformat=small
+  reconnect_delay_seconds: 1
+input_format:
+  sample_rate: 0
+  bit_depth: 0
+  channels: 0
+  bitrate: 0
+  codec: ''
+output_format:
+  mode: original
+  file_format: aac
+  sample_rate: 48000
+  bit_depth: 16
+  channels: 2
+  bitrate_kbps: 96
+save_path: M:\Users\twelve\Projects\quince-dotnet\recording\Retro
+date_folder_format: YYYY-MM-DD
+file_name_format: hh-mm-ss
+file_duration_seconds: 600
+record_audio: true
+retention_days: 2
+auto_start: true
+silence_detector:
+  enabled: true
+  threshold_dbfs: -60.0
+  trigger_seconds: 3.0
+  resume_seconds: 1.0
+metadata_path: ''

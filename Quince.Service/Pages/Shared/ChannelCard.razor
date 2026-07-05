@@ -1,0 +1,107 @@
+@using Quince.Service.Configuration
+@using Quince.Service.Services
+@using Quince.Service.Audio
+@inject AudioEngineManager EngineManager
+@implements IAsyncDisposable
+
+<div class="channel-card">
+    <div class="channel-row1">
+        <div class="status-dot @StatusDotClass"></div>
+        @if (Config.Source.Type == "stream")
+        {
+            <div class="status-dot @SilenceDotClass"></div>
+        }
+        <div class="channel-name" title="@Config.Name">@Config.Name</div>
+        @if (_status.ReconnectAttempt > 0)
+        {
+            <div class="reconnect-label">Реконнект #@_status.ReconnectAttempt</div>
+        }
+        <div class="spacer"></div>
+        <button class="btn @(_status.IsRecording ? "btn-stop" : "btn-start")"
+                title="@(Config.Source.Type == "stream" ? (_status.IsRecording ? "Остановить запись" : "Начать запись") : "Звуковая карта пока не реализована")"
+                disabled="@(Config.Source.Type != "stream")"
+                @onclick="ToggleRecording">
+            @(_status.IsRecording ? "Стоп" : "Старт")
+        </button>
+        <button class="btn btn-small" title="Редактировать настройки канала">✎</button>
+        <button class="btn btn-small" title="Клонировать канал">⧉</button>
+        <button class="btn btn-meters" title="Открыть окно индикаторов уровня">▦ Индикаторы</button>
+        <button class="btn btn-delete" title="Удалить канал">✕</button>
+    </div>
+    <div class="channel-row2">Вход: @ChannelDisplayFormatter.FormatSource(Config)</div>
+    <div class="channel-row3">Файл: @ChannelDisplayFormatter.FormatOutput(Config)</div>
+    <div class="level-widget">
+        <div class="level-row">
+            <span class="level-label">TP</span>
+            <div class="level-track"><div class="level-fill" style="width: @(LevelFillPercent)%"></div></div>
+            <span class="level-value">@LevelValueText</span>
+        </div>
+    </div>
+</div>
+
+@code {
+    [Parameter, EditorRequired]
+    public ChannelConfig Config { get; set; } = null!;
+
+    private EngineStatus _status = new();
+    private LevelReading _level = new();
+    private bool _disposed;
+
+    private string StatusDotClass => _status switch
+    {
+        { IsRecording: false } => "",
+        { ReconnectAttempt: > 0 } => "dot-yellow",
+        _ => "dot-green",
+    };
+
+    private string SilenceDotClass => _status.IsSilent ? "dot-purple" : "";
+
+    private double LevelFillPercent => double.IsNegativeInfinity(_level.TruePeakDb)
+        ? 0
+        : Math.Clamp((_level.TruePeakDb + 60.0) / 60.0 * 100.0, 0, 100);
+
+    private string LevelValueText => double.IsNegativeInfinity(_level.TruePeakDb) ? "—" : $"{_level.TruePeakDb:F1} dB";
+
+    protected override void OnInitialized()
+    {
+        if (Config.Source.Type != "stream") return;
+
+        _status = EngineManager.GetStatus(Config.Name) ?? new EngineStatus();
+        EngineManager.LevelUpdated += OnLevelUpdated;
+        EngineManager.StatusUpdated += OnStatusUpdated;
+    }
+
+    private void OnLevelUpdated(string channelName, LevelReading reading)
+    {
+        if (_disposed || channelName != Config.Name) return;
+        _level = reading;
+        InvokeAsync(StateHasChanged);
+    }
+
+    private void OnStatusUpdated(string channelName, EngineStatus status)
+    {
+        if (_disposed || channelName != Config.Name) return;
+        _status = status;
+        InvokeAsync(StateHasChanged);
+    }
+
+    private void ToggleRecording()
+    {
+        if (Config.Source.Type != "stream") return;
+        if (_status.IsRecording)
+            EngineManager.Stop(Config.Name);
+        else
+            EngineManager.Start(Config.Name);
+    }
+
+    public ValueTask DisposeAsync()
+    {
+        _disposed = true;
+        if (Config.Source.Type == "stream")
+        {
+            EngineManager.LevelUpdated -= OnLevelUpdated;
+            EngineManager.StatusUpdated -= OnStatusUpdated;
+        }
+        return ValueTask.CompletedTask;
+    }
+}
