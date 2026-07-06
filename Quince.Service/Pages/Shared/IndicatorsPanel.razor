@@ -31,9 +31,16 @@
                 <div class="vmeter-value" style="visibility:hidden">·</div>
                 <div class="meter-max" style="visibility:hidden">·</div>
                 <div class="vscale-track">
-                    @foreach (var (pct, label) in ScaleTicks())
+                    @foreach (var (pct, label, isMajor) in ScaleTicks())
                     {
-                        <div class="vscale-tick" style="top:@((100.0 - pct).ToString(CultureInfo.InvariantCulture))%;">@label</div>
+                        @if (isMajor)
+                        {
+                            <div class="vscale-tick" style="top:@((100.0 - pct).ToString(CultureInfo.InvariantCulture))%;">@label</div>
+                        }
+                        else
+                        {
+                            <div class="vscale-tick-minor" style="top:@((100.0 - pct).ToString(CultureInfo.InvariantCulture))%;"></div>
+                        }
                     }
                 </div>
             </div>
@@ -43,7 +50,7 @@
                     <div class="vmeter">
                         <div class="vmeter-label">@m.Label</div>
                         <div class="vmeter-value">@(FormatDb(m.Db))</div>
-                        <button type="button" class="meter-max" @onclick="() => ResetMax(ChannelName)" title="Пиковый максимум с момента запуска/последнего сброса — клик сбрасывает все максимумы канала">макс: @(FormatDb(m.MaxDb))</button>
+                        <button type="button" class="meter-max" @onclick="() => ResetMax(ChannelName)" title="Пиковый максимум с момента запуска/последнего сброса — клик сбрасывает все максимумы канала">@(FormatDb(m.MaxDb))</button>
                         <div class="vmeter-track" style="background: @(TrackGradient);"><div class="vmeter-cover" style="height:@(CoverPercentText(m.Db))%;"></div></div>
                     </div>
                 }
@@ -53,7 +60,7 @@
                 <div class="vmeter">
                     <div class="vmeter-label">@m.Label</div>
                     <div class="vmeter-value">@(FormatDb(m.Db))</div>
-                    <button type="button" class="meter-max" @onclick="() => ResetMax(ChannelName)" title="Пиковый максимум с момента запуска/последнего сброса — клик сбрасывает все максимумы канала">макс: @(FormatDb(m.MaxDb))</button>
+                    <button type="button" class="meter-max" @onclick="() => ResetMax(ChannelName)" title="Пиковый максимум с момента запуска/последнего сброса — клик сбрасывает все максимумы канала">@(FormatDb(m.MaxDb))</button>
                     <div class="vmeter-track" style="background: @(TrackGradient);"><div class="vmeter-cover" style="height:@(CoverPercentText(m.Db))%;"></div></div>
                 </div>
             }
@@ -134,14 +141,18 @@
 
     private sealed record VMeterInfo(string Label, double Db, double MaxDb);
 
-    /// <summary>Tick marks for the -Inf..0 LU scale next to the meters, every 6 dB/LU — same
-    /// mapping (<see cref="MeterZoneStyle.Percent"/>) the meters themselves use, so a tick always
-    /// lines up with the exact height where that reading would fill the track to.</summary>
-    private static IEnumerable<(double Percent, string Label)> ScaleTicks()
+    /// <summary>Tick marks for the -Inf..0 LU scale next to the meters — a labelled major tick every
+    /// 6 dB/LU and an unlabelled minor tick every 1 dB/LU in between, using the same mapping
+    /// (<see cref="MeterZoneStyle.Percent"/>) the meters themselves use, so a tick always lines up
+    /// with the exact height where that reading would fill the track to.</summary>
+    private static IEnumerable<(double Percent, string Label, bool IsMajor)> ScaleTicks()
     {
-        for (var db = 0.0; db > -60.0; db -= 6.0)
-            yield return (MeterZoneStyle.Percent(db), db.ToString("0", CultureInfo.InvariantCulture));
-        yield return (MeterZoneStyle.Percent(double.NegativeInfinity), "-∞");
+        for (var db = 0; db > -60; db--)
+        {
+            var isMajor = db % 6 == 0;
+            yield return (MeterZoneStyle.Percent(db), isMajor ? db.ToString(CultureInfo.InvariantCulture) : "", isMajor);
+        }
+        yield return (MeterZoneStyle.Percent(double.NegativeInfinity), "-∞", true);
     }
 
     private static IEnumerable<VMeterInfo> VMeters(LevelReading level, PeakMax max)

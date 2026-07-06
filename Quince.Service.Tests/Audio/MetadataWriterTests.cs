@@ -192,4 +192,52 @@ public class MetadataWriterTests : IDisposable
 
         Assert.True(File.Exists(Path.Combine(explicitDir, "2026-06-28.csv")));
     }
+
+    [Theory]
+    [InlineData("Реклама")]
+    [InlineData("реклама")]
+    [InlineData("РЕКЛАМА")]
+    [InlineData("Блок реклама на радио")]
+    public void AdKeyword_MatchInTitle_ClassifiedAsC(string title)
+    {
+        var mw = new MetadataWriter(_tempDir, "", () => new[] { "Реклама", "Reklama", "Commercial" });
+        mw.OnMetadata(Evt(title, ts: new DateTimeOffset(2026, 6, 28, 12, 0, 0, TimeSpan.Zero)));
+        mw.Flush();
+
+        var row = Assert.Single(ReadCsvRows(Assert.Single(FindCsvFiles(_tempDir))));
+        Assert.Equal("C", row[3]);
+    }
+
+    [Fact]
+    public void AdKeyword_MatchInArtist_ClassifiedAsC()
+    {
+        var mw = new MetadataWriter(_tempDir, "", () => new[] { "Commercial" });
+        mw.OnMetadata(Evt("Break", "Commercial Break Network", new DateTimeOffset(2026, 6, 28, 12, 0, 0, TimeSpan.Zero)));
+        mw.Flush();
+
+        var row = Assert.Single(ReadCsvRows(Assert.Single(FindCsvFiles(_tempDir))));
+        Assert.Equal("C", row[3]);
+    }
+
+    [Fact]
+    public void NoAdKeywordMatch_ClassifiedAsM()
+    {
+        var mw = new MetadataWriter(_tempDir, "", () => new[] { "Реклама", "Reklama", "Commercial" });
+        mw.OnMetadata(Evt("Freedom", "George Michael", new DateTimeOffset(2026, 6, 28, 12, 0, 0, TimeSpan.Zero)));
+        mw.Flush();
+
+        var row = Assert.Single(ReadCsvRows(Assert.Single(FindCsvFiles(_tempDir))));
+        Assert.Equal("M", row[3]);
+    }
+
+    [Fact]
+    public void NoAdKeywordsConfigured_ClassifiedAsM()
+    {
+        var mw = new MetadataWriter(_tempDir, "");
+        mw.OnMetadata(Evt("Реклама", ts: new DateTimeOffset(2026, 6, 28, 12, 0, 0, TimeSpan.Zero)));
+        mw.Flush();
+
+        var row = Assert.Single(ReadCsvRows(Assert.Single(FindCsvFiles(_tempDir))));
+        Assert.Equal("M", row[3]);
+    }
 }

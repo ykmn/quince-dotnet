@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using Microsoft.Extensions.Logging;
 using YamlDotNet.Serialization;
 using YamlDotNet.Serialization.NamingConventions;
@@ -35,6 +36,7 @@ public class YamlConfigLoader
                 var text = File.ReadAllText(file);
                 config = _deserializer.Deserialize<ChannelConfig>(text);
                 config.Filename = Path.GetFileName(file);
+                MigrateFileDurationSeconds(config, text);
             }
             catch (Exception ex)
             {
@@ -43,6 +45,23 @@ public class YamlConfigLoader
             if (config != null && !string.IsNullOrWhiteSpace(config.Name))
                 yield return config;
         }
+    }
+
+    /// <summary>
+    /// `file_duration_seconds` was renamed to `file_duration_minutes`. Old configs still on disk with
+    /// the former key would otherwise silently lose their configured rotation interval — deserializing
+    /// ignores the unmatched old key (see <c>IgnoreUnmatchedProperties</c>) and <see cref="ChannelConfig.FileDurationMinutes"/>
+    /// would just sit at its default (60) instead of the value the file actually specified. Only
+    /// applies when the new key isn't already present (a resaved/hand-written file takes priority).
+    /// </summary>
+    private static void MigrateFileDurationSeconds(ChannelConfig config, string rawYaml)
+    {
+        if (Regex.IsMatch(rawYaml, @"^\s*file_duration_minutes\s*:", RegexOptions.Multiline))
+            return;
+
+        var match = Regex.Match(rawYaml, @"^\s*file_duration_seconds\s*:\s*(\d+)", RegexOptions.Multiline);
+        if (match.Success && int.TryParse(match.Groups[1].Value, out var seconds))
+            config.FileDurationMinutes = Math.Max(1, seconds / 60);
     }
 
     private void LogLoadError(string file, Exception ex)

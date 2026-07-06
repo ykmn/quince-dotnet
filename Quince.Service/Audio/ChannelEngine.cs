@@ -11,6 +11,7 @@ public sealed class ChannelEngine
     private readonly Action<LevelReading> _onLevelUpdate;
     private readonly Action<EngineStatus> _onStatusChange;
     private readonly Action<GoniometerFrame> _onGoniometerUpdate;
+    private readonly Func<IReadOnlyList<string>>? _getAdKeywords;
 
     private ChannelConfig _config;
     private IAudioCapture? _capture;
@@ -19,6 +20,8 @@ public sealed class ChannelEngine
     private SilenceDetector? _silence;
     private IMetadataReader? _metadataReader;
     private MetadataWriter? _metadataWriter;
+    private DateTimeOffset? _metadataStartedAt;
+    private const int MetadataGraceSeconds = 30;
     private EngineStatus _status = new();
     private bool _started;
     private readonly object _statusLock = new();
@@ -27,7 +30,8 @@ public sealed class ChannelEngine
     private Task? _monitorTask;
 
     public ChannelEngine(ChannelConfig config, string ffmpegPath, string ffprobePath, ILoggerFactory loggerFactory,
-        Action<LevelReading> onLevelUpdate, Action<EngineStatus> onStatusChange, Action<GoniometerFrame> onGoniometerUpdate)
+        Action<LevelReading> onLevelUpdate, Action<EngineStatus> onStatusChange, Action<GoniometerFrame> onGoniometerUpdate,
+        Func<IReadOnlyList<string>>? getAdKeywords = null)
     {
         _config = config;
         _ffmpegPath = ffmpegPath;
@@ -36,6 +40,7 @@ public sealed class ChannelEngine
         _onLevelUpdate = onLevelUpdate;
         _onStatusChange = onStatusChange;
         _onGoniometerUpdate = onGoniometerUpdate;
+        _getAdKeywords = getAdKeywords;
     }
 
     public EngineStatus Status
@@ -43,6 +48,13 @@ public sealed class ChannelEngine
         get { lock (_statusLock) { return _status; } }
     }
     public ChannelConfig Config => _config;
+
+    /// <summary>Exposes the running channel's raw audio to an extra consumer (e.g. output monitoring
+    /// playback) alongside the meter/writer/silence-detector consumers already subscribed internally.
+    /// Null if the channel isn't currently running.</summary>
+    public System.Threading.Channels.ChannelReader<AudioChunk>? Subscribe(string consumerId) => _capture?.Subscribe(consumerId);
+
+    public void Unsubscribe(string consumerId) => _capture?.Unsubscribe(consumerId);
 
     public void Start()
     {
@@ -122,6 +134,7 @@ public sealed class ChannelEngine
         _monitorTask = null;
 
         _metadataReader?.Stop(); _metadataReader = null;
+        _metadataStartedAt = null;
         _metadataWriter?.Flush(); _metadataWriter = null;
         _silence?.Stop(); _silence = null;
         _meter?.Stop(); _meter = null;
@@ -165,7 +178,7 @@ public sealed class ChannelEngine
         if (string.IsNullOrEmpty(metaUrl)) return;
 
         var metaLog = _loggerFactory.CreateLogger("Metadata");
-        _metadataWriter = new MetadataWriter(_config.SavePath, _config.MetadataPath);
+        _metadataWriter = new MetadataWriter(_config.SavePath, _config.MetadataPath, _getAdKeywords);
 
         void OnMeta(MetadataEvent evt)
         {
@@ -180,8 +193,20 @@ public sealed class ChannelEngine
             ? new IcecastMetadataReader(_config.Source.Url, _config.Source.AllowInvalidSsl, OnMeta, _config.Name, metaLog)
             : new HlsMetadataReader(_config.Source.Url, _config.Source.AllowInvalidSsl, OnMeta, _config.Name, _ffprobePath, metaLog);
 
+        _metadataStartedAt = DateTimeOffset.UtcNow;
         _metadataReader.Start();
         metaLog.LogInformation("Метаданные: запущен reader ({MetaUrl})", metaUrl);
+    }
+
+    /// <summary>null = no metadata URL configured (nothing to check); true = metadata detected;
+    /// false = a metadata URL is configured but nothing has been detected after a grace period
+    /// (long enough to cover HLS's worst-case discovery retries + ID3 fallback probe).</summary>
+    private bool? ComputeMetadataOk()
+    {
+        if (string.IsNullOrEmpty(_config.Source.MetadataUrl)) return null;
+        if (_metadataReader == null || _metadataStartedAt == null) return null;
+        if (_metadataReader.HasMetadata) return true;
+        return DateTimeOffset.UtcNow - _metadataStartedAt.Value >= TimeSpan.FromSeconds(MetadataGraceSeconds) ? false : null;
     }
 
     private bool PipelineChanged(ChannelConfig newConfig)
@@ -202,7 +227,7 @@ public sealed class ChannelEngine
             || old.OutputFormat.BitrateKbps != newConfig.OutputFormat.BitrateKbps
             || old.OutputFormat.BitDepth != newConfig.OutputFormat.BitDepth
             || old.SavePath != newConfig.SavePath
-            || old.FileDurationSeconds != newConfig.FileDurationSeconds
+            || old.FileDurationMinutes != newConfig.FileDurationMinutes
             || old.DateFolderFormat != newConfig.DateFolderFormat
             || old.FileNameFormat != newConfig.FileNameFormat;
     }
@@ -214,12 +239,13 @@ public sealed class ChannelEngine
             while (!ct.IsCancellationRequested)
             {
                 var attempt = _capture?.ReconnectAttempt ?? 0;
+                var metadataOk = ComputeMetadataOk();
                 EngineStatus? newStatus = null;
                 lock (_statusLock)
                 {
-                    if (attempt != _status.ReconnectAttempt)
+                    if (attempt != _status.ReconnectAttempt || metadataOk != _status.MetadataOk)
                     {
-                        newStatus = _status with { IsRecording = _started, ReconnectAttempt = attempt };
+                        newStatus = _status with { IsRecording = _started, ReconnectAttempt = attempt, MetadataOk = metadataOk };
                         _status = newStatus;
                     }
                 }

@@ -7,7 +7,7 @@
 @inject ChannelUiState UiState
 @inject MetadataDetectionService MetadataService
 
-<div class="modal-overlay" @onclick="Close">
+<div class="modal-overlay">
     <div class="modal-box modal-box-wide" @onclick:stopPropagation="true">
         <h2>@(_isCreate ? "Новый канал записи" : $"Редактирование канала «{UiState.EditTarget!.Name}»")</h2>
 
@@ -74,9 +74,9 @@
                         <option value="">— выбрать из списка —</option>
                         @foreach (var d in _devices)
                         {
-                            <option value="@d.Driver">@d.Name@(d.IsDefault ? " (по умолчанию)" : "")@(d.IsEnabled ? "" : " (отключено)")</option>
+                            <option value="@d.Id">@d.Name@(d.IsDefault ? " (по умолчанию)" : "")@(d.IsEnabled ? "" : " (отключено)")</option>
                         }
-                        @if (!string.IsNullOrEmpty(_draft.Source.DeviceUid) && !_devices.Any(d => d.Driver == _draft.Source.DeviceUid))
+                        @if (!string.IsNullOrEmpty(_draft.Source.DeviceUid) && !_devices.Any(d => d.Id == _draft.Source.DeviceUid))
                         {
                             <option value="@_draft.Source.DeviceUid">Текущее (не обнаружено сейчас): @(string.IsNullOrEmpty(_draft.Source.DeviceName) ? _draft.Source.DeviceUid : _draft.Source.DeviceName)</option>
                         }
@@ -102,7 +102,7 @@
             <label title="Папка на диске или сетевой путь, куда будут сохраняться аудиофайлы этого канала. Создаётся автоматически, если ещё не существует.">Папка сохранения</label>
             <div class="input-with-button">
                 <input @bind="_draft.SavePath" title="Папка на диске или сетевой путь, куда будут сохраняться аудиофайлы этого канала. Создаётся автоматически, если ещё не существует." />
-                <button type="button" class="btn btn-small" @onclick="OpenFolderBrowser" disabled="@_browsingFolderNative" title="Выбрать папку на этом сервере">@(_browsingFolderNative ? "Открытие диалога…" : "Обзор…")</button>
+                <button type="button" class="btn btn-small" @onclick="OpenFolderBrowser" title="Выбрать папку на диске сервера, где выполняется служба Quince.Service">Обзор…</button>
             </div>
 
             <label title="Шаблон имени подпапки по дате записи, например YYYY-MM-DD.">Формат папки по дате</label>
@@ -111,8 +111,8 @@
             <label title="Шаблон имени файла записи, например hh-mm-ss.">Формат имени файла</label>
             <input @bind="_draft.FileNameFormat" title="Шаблон имени файла записи, например hh-mm-ss." />
 
-            <label title="Через сколько секунд текущий файл записи закрывается и начинается новый.">Длительность файла, с</label>
-            <input type="number" @bind="_draft.FileDurationSeconds" title="Через сколько секунд текущий файл записи закрывается и начинается новый." />
+            <label title="Через сколько минут текущий файл записи закрывается и начинается новый.">Длительность файла, мин</label>
+            <input type="number" @bind="_draft.FileDurationMinutes" title="Через сколько минут текущий файл записи закрывается и начинается новый." />
 
             <label title="Через сколько дней старые записи этого канала удаляются автоматически (0 — не удалять).">Хранить записи, дней</label>
             <input type="number" @bind="_draft.RetentionDays" title="Через сколько дней старые записи этого канала удаляются автоматически (0 — не удалять)." />
@@ -215,7 +215,6 @@
     private string? _error;
     private bool _saving;
     private bool _browsingFolder;
-    private bool _browsingFolderNative;
 
     private List<SoundcardCapture.RecordDeviceInfo> _devices = new();
     private string? _deviceListError;
@@ -244,29 +243,15 @@
 
     private void Close() => UiState.CloseEditChannel();
 
-    private async Task OpenFolderBrowser()
-    {
-        if (NativeFolderPicker.IsAvailable)
-        {
-            _browsingFolderNative = true;
-            try
-            {
-                var picked = await NativeFolderPicker.PickAsync(_draft.SavePath);
-                if (picked != null) _draft.SavePath = picked;
-                return; // shown (and either picked or cancelled) — no need for the in-app fallback
-            }
-            catch
-            {
-                // No attached interactive desktop despite UserInteractive==true (e.g. a locked/
-                // disconnected session) — fall back to the in-app browser below.
-            }
-            finally
-            {
-                _browsingFolderNative = false;
-            }
-        }
-        _browsingFolder = true;
-    }
+    /// <summary>
+    /// Always browses the filesystem of the machine running Quince.Service (via FolderBrowserService),
+    /// never a native OS dialog: a native FolderBrowserDialog runs in-process on the SERVER, which is
+    /// only usable when the person clicking "Обзор…" is physically/remotely (RDP) at that exact
+    /// machine's interactive desktop — for any other client (a different PC's browser, a phone, a
+    /// proper Windows Service with no desktop at all) it would silently pop up somewhere nobody can
+    /// see it. The in-app browser works identically and correctly in every deployment scenario.
+    /// </summary>
+    private void OpenFolderBrowser() => _browsingFolder = true;
 
     private void OnFolderSelected(string path) => _draft.SavePath = path;
 
@@ -277,10 +262,10 @@
             _devices = SoundcardCapture.EnumerateDevices();
             _deviceListError = null;
         }
-        catch (DllNotFoundException)
+        catch (System.Runtime.InteropServices.COMException ex)
         {
             _devices = new();
-            _deviceListError = "Библиотека BASS (bass.dll) не найдена или не смогла загрузиться — обычно она лежит рядом с Quince.Service.exe; проверьте, что файл на месте и не заблокирован антивирусом/политикой Windows (см. README). Каналы со звуковой картой недоступны, пока это не исправлено.";
+            _deviceListError = $"Не удалось опросить аудиоподсистему Windows (проверьте, что служба \"Windows Audio\" запущена): {ex.Message}";
         }
         catch (Exception ex)
         {
@@ -293,7 +278,7 @@
     {
         var uid = e.Value?.ToString() ?? "";
         _draft.Source.DeviceUid = uid;
-        var match = _devices.FirstOrDefault(d => d.Driver == uid);
+        var match = _devices.FirstOrDefault(d => d.Id == uid);
         if (!string.IsNullOrEmpty(uid) && !string.IsNullOrEmpty(match.Name))
             _draft.Source.DeviceName = match.Name;
     }

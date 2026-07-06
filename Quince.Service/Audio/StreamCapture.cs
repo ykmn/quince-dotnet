@@ -30,6 +30,8 @@ public sealed class StreamCapture : IAudioCapture
     private Process? _process;
     private CancellationTokenSource? _cts;
     private Task? _task;
+    private readonly System.Text.StringBuilder _stderrBuffer = new();
+    private readonly object _stderrLock = new();
 
     public StreamCapture(string ffmpegPath, string url, string streamType, bool allowInvalidSsl,
         int hlsBitrateIndex, int reconnectDelaySeconds, ILogger log)
@@ -92,12 +94,17 @@ public sealed class StreamCapture : IAudioCapture
 
     internal static string[] BuildFfmpegArgs(string url, string streamType, bool allowInvalidSsl, int hlsBitrateIndex, string userAgent)
     {
-        var args = new List<string> { "-hide_banner", "-loglevel", "error" };
+        var args = new List<string> { "-hide_banner", "-loglevel", "error", "-fflags", "nobuffer" };
         if (allowInvalidSsl) args.AddRange(new[] { "-tls_verify", "0" });
         args.AddRange(new[] { "-user_agent", userAgent });
 
         var isHls = streamType == "hls";
-        if (isHls) args.AddRange(new[] { "-allowed_extensions", "ALL" });
+        // Without -live_start_index -1, ffmpeg's HLS demuxer starts from the oldest segment still
+        // in the live playlist window rather than the current live edge — for a typical few-segment
+        // rolling window (segments a few seconds each) that means playback has to "catch up" through
+        // everything already buffered before real-time audio arrives, unlike Icecast's single
+        // continuous connection which has no such window to drain.
+        if (isHls) args.AddRange(new[] { "-allowed_extensions", "ALL", "-live_start_index", "-1" });
 
         args.AddRange(new[] { "-i", url });
 
@@ -141,6 +148,7 @@ public sealed class StreamCapture : IAudioCapture
 
                 process = Process.Start(psi) ?? throw new InvalidOperationException("Process.Start returned null");
                 _process = process;
+                lock (_stderrLock) { _stderrBuffer.Clear(); }
                 _status = StreamStatus.Streaming;
                 if (_reconnectAttempt > 0)
                     _log.LogInformation("Переподключение к {Url} выполнено", _url);
@@ -210,7 +218,14 @@ public sealed class StreamCapture : IAudioCapture
         }
 
         if (process.HasExited && process.ExitCode != 0)
-            _log.LogWarning("FFmpeg завершился с кодом {Code}", process.ExitCode);
+        {
+            string stderr;
+            lock (_stderrLock) { stderr = _stderrBuffer.ToString(); }
+            if (string.IsNullOrWhiteSpace(stderr))
+                _log.LogWarning("FFmpeg завершился с кодом {Code}", process.ExitCode);
+            else
+                _log.LogWarning("FFmpeg завершился с кодом {Code}. Stderr: {Stderr}", process.ExitCode, stderr.Trim());
+        }
     }
 
     private async Task DrainStderrAsync(Process process, CancellationToken ct)
@@ -221,8 +236,15 @@ public sealed class StreamCapture : IAudioCapture
             string? line;
             while ((line = await reader.ReadLineAsync(ct)) != null)
             {
-                if (!string.IsNullOrWhiteSpace(line))
-                    _log.LogDebug("ffmpeg stderr: {Line}", line);
+                if (string.IsNullOrWhiteSpace(line)) continue;
+                _log.LogDebug("ffmpeg stderr: {Line}", line);
+                lock (_stderrLock)
+                {
+                    _stderrBuffer.AppendLine(line);
+                    // Bound growth in case of a very chatty/long-running process before it crashes.
+                    if (_stderrBuffer.Length > 16_384)
+                        _stderrBuffer.Remove(0, _stderrBuffer.Length - 16_384);
+                }
             }
         }
         catch (OperationCanceledException) { }

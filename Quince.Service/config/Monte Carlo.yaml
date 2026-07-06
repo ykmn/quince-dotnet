@@ -27,7 +27,7 @@ output_format:
 save_path: D:\recording\MonteCarlo
 date_folder_format: YYYY-MM-DD
 file_name_format: hh-mm-ss
-file_duration_seconds: 3600
+file_duration_minutes: 60
 record_audio: true
 retention_days: 30
 auto_start: false

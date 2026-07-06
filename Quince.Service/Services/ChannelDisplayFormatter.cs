@@ -34,7 +34,7 @@ public static class ChannelDisplayFormatter
             ? $"{outFmt.BitrateKbps}kbps"
             : $"{outFmt.BitDepth}bit";
         var path = config.SavePath ?? "";
-        var duration = FormatDuration(config.FileDurationSeconds);
+        var duration = FormatDuration(config.FileDurationMinutes * 60);
         var parts = new[] { $"{fmt} {quality}", path, duration }.Where(p => !string.IsNullOrEmpty(p));
         return string.Join(" · ", parts);
     }

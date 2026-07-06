@@ -1,13 +1,14 @@
 using System.Runtime.InteropServices;
 using System.Threading.Channels;
-using ManagedBass;
 using Microsoft.Extensions.Logging;
+using NAudio.CoreAudioApi;
+using NAudio.Wave;
 using Quince.Service.Configuration;
 
 namespace Quince.Service.Audio;
 
 /// <summary>
-/// Captures audio from a local soundcard/input device via BASS (ManagedBass), for
+/// Captures audio from a local soundcard/input device via NAudio's WASAPI wrapper, for
 /// <c>source.type: soundcard</c> channels. Mirrors the public shape and status-transition
 /// behaviour of <see cref="StreamCapture"/> (Connecting → Streaming → Reconnecting → Stopped)
 /// so downstream consumers and the UI's status/reconnect display work unmodified regardless of
@@ -17,8 +18,6 @@ public sealed class SoundcardCapture : IAudioCapture
 {
     private const int RecordSampleRate = 44100;
     private const int RecordChannels = 2;
-    private const int MonitorPollMs = 500;
-    private const int DisconnectConfirmMs = 300;
 
     public int SampleRate => RecordSampleRate;
     public int Channels => RecordChannels;
@@ -32,8 +31,8 @@ public sealed class SoundcardCapture : IAudioCapture
 
     private volatile StreamStatus _status = StreamStatus.Stopped;
     private volatile int _reconnectAttempt;
-    private int _recordHandle;
-    private RecordProcedure? _recordProcedure;
+    private WasapiCapture? _capture;
+    private MMDevice? _mmDevice;
     private CancellationTokenSource? _cts;
     private Task? _task;
 
@@ -75,20 +74,20 @@ public sealed class SoundcardCapture : IAudioCapture
     {
         _cts?.Cancel();
         _status = StreamStatus.Stopped;
-        FreeRecordHandle();
+        DisposeCapture();
         try { _task?.Wait(TimeSpan.FromSeconds(10)); } catch (AggregateException) { }
         _task = null;
     }
 
-    internal readonly record struct RecordDeviceInfo(int Index, string Name, string Driver, bool IsEnabled, bool IsDefault);
+    internal readonly record struct RecordDeviceInfo(int Index, string Name, string Id, bool IsEnabled, bool IsDefault);
 
     /// <summary>
-    /// Picks which recording device index to use out of the devices currently reported by BASS.
-    /// There is no legacy reference implementation to transliterate here, so this is a best-effort
-    /// heuristic with the following priority (first applicable branch wins, no further fallback once
-    /// a branch is entered — an explicitly configured UID/name that doesn't match anything intentionally
-    /// resolves to "no device" rather than silently picking an unrelated one):
-    ///   1. DeviceUid set        -> case-insensitive EXACT match against a device's Driver string.
+    /// Picks which recording device index to use out of the devices currently reported by
+    /// Windows. There is no legacy reference implementation to transliterate here, so this is a
+    /// best-effort heuristic with the following priority (first applicable branch wins, no further
+    /// fallback once a branch is entered — an explicitly configured UID/name that doesn't match
+    /// anything intentionally resolves to "no device" rather than silently picking an unrelated one):
+    ///   1. DeviceUid set        -> case-insensitive EXACT match against a device's Id string.
     ///   2. else DeviceName set  -> case-insensitive EXACT match against Name, else case-insensitive
     ///                              SUBSTRING match against Name.
     ///   3. else DeviceIndex >=0 -> used as-is if in range and that device IsEnabled (an out-of-range
@@ -102,7 +101,7 @@ public sealed class SoundcardCapture : IAudioCapture
     {
         if (!string.IsNullOrEmpty(deviceUid))
         {
-            var match = FindFirst(devices, d => string.Equals(d.Driver, deviceUid, StringComparison.OrdinalIgnoreCase));
+            var match = FindFirst(devices, d => string.Equals(d.Id, deviceUid, StringComparison.OrdinalIgnoreCase));
             return match?.Index;
         }
 
@@ -134,21 +133,39 @@ public sealed class SoundcardCapture : IAudioCapture
         return null;
     }
 
+    /// <summary>
+    /// Enumerates real audio inputs via Windows Core Audio's <see cref="DataFlow.Capture"/>
+    /// endpoint category. Unlike BASS's recording-device enumeration (which used to mix in WASAPI
+    /// loopback/render devices, requiring a reactive IsLoopback filter), loopback capture in the
+    /// Core Audio API is a structurally separate mechanism (<c>WasapiLoopbackCapture</c> against a
+    /// RENDER device) that never appears in the Capture endpoint collection — so there is nothing
+    /// to filter out here by construction.
+    /// </summary>
     internal static List<RecordDeviceInfo> EnumerateDevices()
     {
         var devices = new List<RecordDeviceInfo>();
-        var i = 0;
-        while (Bass.RecordGetDeviceInfo(i, out var info))
+        using var enumerator = new MMDeviceEnumerator();
+
+        string? defaultId = null;
+        try
         {
-            // On Windows/WASAPI, BASS's recording-device enumeration also includes "loopback"
-            // devices — captures of an OUTPUT device's playback stream, listed under names like
-            // the speaker/headphone device they mirror. Those aren't audio inputs and would show
-            // up as "outputs" in the device picker, so they're excluded here. Device indices
-            // still line up 1:1 with what BASS itself reports (i keeps incrementing regardless),
-            // so ResolveDeviceIndex's index-based fallback isn't affected by the filtering.
-            if (!info.IsLoopback)
-                devices.Add(new RecordDeviceInfo(i, info.Name ?? "", info.Driver ?? "", info.IsEnabled, info.IsDefault));
-            i++;
+            using var defaultDevice = enumerator.GetDefaultAudioEndpoint(DataFlow.Capture, Role.Multimedia);
+            defaultId = defaultDevice.ID;
+        }
+        catch (COMException)
+        {
+            // No default capture device configured (e.g. every input disabled) — leave defaultId
+            // null so nothing matches IsDefault below, instead of failing enumeration outright.
+        }
+
+        var index = 0;
+        foreach (var device in enumerator.EnumerateAudioEndPoints(DataFlow.Capture, DeviceState.Active))
+        {
+            using (device)
+            {
+                devices.Add(new RecordDeviceInfo(index, device.FriendlyName, device.ID, IsEnabled: true, IsDefault: device.ID == defaultId));
+                index++;
+            }
         }
         return devices;
     }
@@ -162,6 +179,11 @@ public sealed class SoundcardCapture : IAudioCapture
             _status = StreamStatus.Connecting;
             _log.LogInformation("Подключение к аудиоустройству (попытка {Attempt})", _reconnectAttempt);
 
+            // Signalled from the RecordingStopped event — replaces the old poll-every-500ms loop
+            // with an authoritative "the stream really ended, and here's why" callback from WASAPI
+            // itself, instead of inferring device state from a polled activity flag.
+            var stopSignal = new TaskCompletionSource<Exception?>(TaskCreationOptions.RunContinuationsAsynchronously);
+
             try
             {
                 var devices = EnumerateDevices();
@@ -174,57 +196,34 @@ public sealed class SoundcardCapture : IAudioCapture
                 var deviceInfo = devices.First(d => d.Index == deviceIndex.Value);
                 _log.LogInformation("Выбрано устройство записи: {Name} (индекс {Index})", deviceInfo.Name, deviceIndex.Value);
 
-                if (!Bass.RecordInit(deviceIndex.Value) && Bass.LastError != Errors.Already)
+                using var enumerator = new MMDeviceEnumerator();
+                var mmDevice = enumerator.GetDevice(deviceInfo.Id);
+
+                var capture = new WasapiCapture(mmDevice)
                 {
-                    throw new InvalidOperationException($"RecordInit не удался: {Bass.LastError}");
-                }
+                    WaveFormat = WaveFormat.CreateIeeeFloatWaveFormat(SampleRate, Channels),
+                };
+                capture.DataAvailable += OnDataAvailable;
+                capture.RecordingStopped += (_, e) => stopSignal.TrySetResult(e.Exception);
 
-                Bass.CurrentRecordingDevice = deviceIndex.Value;
-
-                _recordProcedure = RecordProc;
-                var handle = Bass.RecordStart(SampleRate, Channels, BassFlags.Float, _recordProcedure, IntPtr.Zero);
-                if (handle == 0)
-                {
-                    throw new InvalidOperationException($"RecordStart не удался: {Bass.LastError}");
-                }
-
-                _recordHandle = handle;
+                capture.StartRecording();
+                _mmDevice = mmDevice;
+                _capture = capture;
                 _status = StreamStatus.Streaming;
                 if (_reconnectAttempt > 0)
                     _log.LogInformation("Переподключение к аудиоустройству выполнено");
                 _reconnectAttempt = 0;
 
-                while (!ct.IsCancellationRequested)
-                {
-                    // Only BASS_ACTIVE_STOPPED means the channel actually terminated (device
-                    // removed/disabled, driver error). "Stalled" just means BASS is momentarily
-                    // waiting for data — normal for quiet/silent input (e.g. an idle virtual audio
-                    // cable with nothing currently playing into it) and not a disconnection; treating
-                    // it as one caused spurious reconnect loops on otherwise-healthy devices.
-                    if (Bass.ChannelIsActive(handle) == PlaybackState.Stopped)
-                    {
-                        // Debounce: some virtual/loopback devices report a single momentary
-                        // Stopped reading that clears itself right away (e.g. while a paired
-                        // playback app briefly reconfigures the stream) — confirm it's still
-                        // stopped a moment later before tearing down and reconnecting.
-                        await Task.Delay(DisconnectConfirmMs, ct);
-                        if (Bass.ChannelIsActive(handle) != PlaybackState.Stopped) continue;
+                var cancelTask = Task.Delay(Timeout.Infinite, ct);
+                var completed = await Task.WhenAny(stopSignal.Task, cancelTask);
+                if (completed == cancelTask)
+                    break; // Stop() was called — clean shutdown, no reconnect wanted.
 
-                        // Distinguish "the device itself vanished" from "BASS's handle died while
-                        // the device is still there" — e.g. BASS_ERROR_HANDLE (as opposed to a
-                        // driver-level removal) means the handle itself was invalidated (some
-                        // virtual audio cables reset their capture pin when idle/reconfigured),
-                        // which the earlier Stopped-vs-Stalled and debounce fixes don't help with,
-                        // since the handle is genuinely dead either way — reconnecting is the only
-                        // recovery. Logged for diagnosis if this keeps recurring.
-                        var stillEnumerated = EnumerateDevices().Any(d => d.Index == deviceIndex.Value);
-                        _log.LogWarning(
-                            "Запись с устройства прекратилась неожиданно (код ошибки BASS: {Error}, устройство всё ещё видно системе: {StillEnumerated})",
-                            Bass.LastError, stillEnumerated);
-                        break;
-                    }
-                    await Task.Delay(MonitorPollMs, ct);
-                }
+                var stopException = stopSignal.Task.Result;
+                var stillEnumerated = EnumerateDevices().Any(d => d.Id == deviceInfo.Id);
+                _log.LogWarning(stopException,
+                    "Запись с устройства прекратилась неожиданно (устройство всё ещё видно системе: {StillEnumerated})",
+                    stillEnumerated);
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
@@ -232,7 +231,7 @@ public sealed class SoundcardCapture : IAudioCapture
             }
             finally
             {
-                FreeRecordHandle();
+                DisposeCapture();
             }
 
             if (ct.IsCancellationRequested) break;
@@ -248,17 +247,17 @@ public sealed class SoundcardCapture : IAudioCapture
         _status = StreamStatus.Stopped;
     }
 
-    private bool RecordProc(int handle, IntPtr buffer, int length, IntPtr user)
+    private void OnDataAvailable(object? sender, WaveInEventArgs e)
     {
-        if (length <= 0) return false; // false = continue recording
+        if (e.BytesRecorded <= 0) return;
 
-        var sampleCount = length / sizeof(float);
+        var sampleCount = e.BytesRecorded / sizeof(float);
         var frameCount = sampleCount / Channels;
-        if (frameCount == 0) return false;
+        if (frameCount == 0) return;
 
         sampleCount = frameCount * Channels;
         var samples = new float[sampleCount];
-        Marshal.Copy(buffer, samples, 0, sampleCount);
+        Buffer.BlockCopy(e.Buffer, 0, samples, 0, sampleCount * sizeof(float));
         var chunk = new AudioChunk(samples, Channels);
 
         List<KeyValuePair<string, ChannelWriter<AudioChunk>>> consumers;
@@ -269,22 +268,27 @@ public sealed class SoundcardCapture : IAudioCapture
             if (!writer.TryWrite(chunk))
                 _log.LogDebug("Очередь подписчика '{Consumer}' переполнена — кадр отброшен ({Frames} фреймов)", consumerId, frameCount);
         }
-
-        return false; // continue recording
     }
 
     /// <summary>
-    /// Stops and frees only this channel's own recording handle. Deliberately does NOT call
-    /// Bass.RecordFree() — the underlying device may be shared with other soundcard channels that
-    /// initialized the same device, and freeing it here would pull the rug out from under them.
+    /// Each channel's <see cref="WasapiCapture"/> independently activates its own WASAPI
+    /// shared-mode client against the target device — unlike BASS, where a device had a single
+    /// shared process-wide init/free lifecycle that other channels could accidentally be pulled
+    /// out from under. Disposing this instance's capture/device objects cannot affect a sibling
+    /// SoundcardCapture instance recording from the same physical device.
     /// </summary>
-    private void FreeRecordHandle()
+    private void DisposeCapture()
     {
-        var handle = _recordHandle;
-        _recordHandle = 0;
-        if (handle == 0) return;
+        var capture = _capture;
+        var mmDevice = _mmDevice;
+        _capture = null;
+        _mmDevice = null;
 
-        try { Bass.ChannelStop(handle); } catch { /* already stopped/freed */ }
-        try { Bass.StreamFree(handle); } catch { /* already freed */ }
+        if (capture != null)
+        {
+            try { capture.StopRecording(); } catch { /* already stopped */ }
+            try { capture.Dispose(); } catch { /* already disposed */ }
+        }
+        try { mmDevice?.Dispose(); } catch { /* already disposed */ }
     }
 }

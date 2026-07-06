@@ -33,6 +33,7 @@ builder.Services.AddHostedService(sp => sp.GetRequiredService<AudioEngineManager
 builder.Services.AddScoped<ChannelUiState>();
 builder.Services.AddSingleton<FolderBrowserService>();
 builder.Services.AddSingleton<MetadataDetectionService>();
+builder.Services.AddSingleton<AudioPlaybackService>();
 
 var configDir = PathResolver.Resolve(builder.Configuration["ConfigDir"], "config");
 var logDir = PathResolver.Resolve(builder.Configuration["LogDir"], "log");

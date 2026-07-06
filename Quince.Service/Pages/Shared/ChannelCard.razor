@@ -6,6 +6,7 @@
 @inject ChannelManager ChannelManager
 @inject ChannelUiState UiState
 @inject AppSettingsService AppSettings
+@inject AudioPlaybackService PlaybackService
 @implements IAsyncDisposable
 
 <div class="channel-card">
@@ -17,7 +18,7 @@
         }
         @if (IsEligibleType)
         {
-            <div class="status-dot @SilenceDotClass" title="@SilenceDotTitle"></div>
+            <div class="status-dot @MetadataHealthDotClass" title="@MetadataHealthDotTitle"></div>
         }
         <div class="channel-name" title="@Config.Name">@Config.Name</div>
         @if (_status.ReconnectAttempt > 0)
@@ -30,6 +31,11 @@
                 disabled="@(!IsEligibleType)"
                 @onclick="ToggleRecording">
             @(_status.IsRecording ? "Стоп" : "Старт")
+        </button>
+        <button class="btn btn-small" title="@(IsPlayingThis ? "Остановить прослушивание" : "Прослушать канал на аудиовыходе (настраивается в Настройках приложения)")"
+                disabled="@(!IsEligibleType)"
+                @onclick="TogglePlayback">
+            @(IsPlayingThis ? "⏹" : "▶")
         </button>
         <button class="btn btn-small" title="Редактировать настройки канала" @onclick="Edit">✎</button>
         <button class="btn btn-small" title="Клонировать канал" @onclick="Clone">⧉</button>
@@ -55,8 +61,6 @@
     private LevelReading _level = new();
     private bool _disposed;
 
-    private const double SilenceDotThresholdDb = -50.0;
-
     private string StatusDotClass => _status switch
     {
         { IsRecording: false } => "",
@@ -72,7 +76,7 @@
     };
 
     private bool HasMetadata => !string.IsNullOrEmpty(Config.Source.MetadataUrl);
-    private string MetadataDotClass => HasMetadata ? "dot-cyan" : "";
+    private string MetadataDotClass => HasMetadata ? "dot-purple" : "";
     private string MetadataDotTitle => Config.Source.MetadataUrl switch
     {
         "" => "Метаданные не настроены",
@@ -80,12 +84,24 @@
         var url => $"Метаданные: HLS JSON ({url})",
     };
 
-    // A coarse, always-on "is there any signal right now" gauge from the live meter reading —
-    // deliberately independent of the per-channel configurable SilenceDetector (which is off by
-    // default and only flips after its own threshold/trigger-seconds hysteresis), so it works even
-    // for channels that never enabled that detector.
-    private string SilenceDotClass => _level.TruePeakDb > SilenceDotThresholdDb ? "dot-green" : "dot-red";
-    private string SilenceDotTitle => _level.TruePeakDb > SilenceDotThresholdDb ? "Звук есть" : "Тишина";
+    // Reports metadata health rather than raw audio level: gray while the channel isn't running
+    // (nothing to check yet), red only once a metadata URL is configured but nothing has been
+    // detected after ChannelEngine's grace period, green otherwise (including channels with no
+    // metadata URL at all — there's nothing to flag for those).
+    private string MetadataHealthDotClass => _status switch
+    {
+        { IsRecording: false } => "",
+        { MetadataOk: false } => "dot-red",
+        _ => "dot-green",
+    };
+
+    private string MetadataHealthDotTitle => _status switch
+    {
+        { IsRecording: false } => "Запись не идёт",
+        { MetadataOk: false } => "Метаданные не определяются",
+        { MetadataOk: true } => "Метаданные поступают",
+        _ => "Метаданные не настроены",
+    };
 
     private bool IsEligibleType => Config.Source.Type is "stream" or "soundcard";
 
@@ -99,9 +115,12 @@
     // interpolated double here would render "45,7" under ru-RU and silently break the width.
     private string CoverPercentText => (100.0 - MeterZoneStyle.Percent(_level.TruePeakDb)).ToString(CultureInfo.InvariantCulture);
 
+    private bool IsPlayingThis => PlaybackService.PlayingChannel == Config.Name;
+
     protected override void OnInitialized()
     {
         AppSettings.Changed += OnSettingsChanged;
+        PlaybackService.Changed += OnSettingsChanged;
         if (!IsEligibleType) return;
 
         _status = EngineManager.GetStatus(Config.Name) ?? new EngineStatus();
@@ -115,6 +134,21 @@
         InvokeAsync(StateHasChanged);
     }
 
+    private void TogglePlayback()
+    {
+        try
+        {
+            if (IsPlayingThis)
+                PlaybackService.Stop();
+            else
+                PlaybackService.Play(Config.Name);
+        }
+        catch (Exception ex)
+        {
+            UiState.SetStatusMessage($"Не удалось воспроизвести канал «{Config.Name}»: {ex.Message}");
+        }
+    }
+
     private void OnLevelUpdated(string channelName, LevelReading reading)
     {
         if (_disposed || channelName != Config.Name) return;
@@ -126,6 +160,8 @@
     {
         if (_disposed || channelName != Config.Name) return;
         _status = status;
+        if (!status.IsRecording)
+            _level = new LevelReading();
         InvokeAsync(StateHasChanged);
     }
 
@@ -150,6 +186,7 @@
     {
         _disposed = true;
         AppSettings.Changed -= OnSettingsChanged;
+        PlaybackService.Changed -= OnSettingsChanged;
         if (IsEligibleType)
         {
             EngineManager.LevelUpdated -= OnLevelUpdated;

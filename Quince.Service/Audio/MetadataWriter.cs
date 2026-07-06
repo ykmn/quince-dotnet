@@ -15,12 +15,17 @@ public sealed class MetadataWriter
     private static readonly byte[] Utf8Bom = { 0xEF, 0xBB, 0xBF };
 
     private readonly string _savePath;
+    private readonly Func<IReadOnlyList<string>>? _getAdKeywords;
     private readonly object _lock = new();
     private PendingEntry? _pending;
 
-    public MetadataWriter(string savePath, string metadataPath)
+    /// <param name="getAdKeywords">Reads the live-current ad-keyword list at classification time
+    /// (not just a snapshot from when the channel started) — null skips "C" classification (ElemClass
+    /// is then only ever "B"/"M").</param>
+    public MetadataWriter(string savePath, string metadataPath, Func<IReadOnlyList<string>>? getAdKeywords = null)
     {
         _savePath = string.IsNullOrEmpty(metadataPath) ? Path.Combine(savePath, "meta") : metadataPath;
+        _getAdKeywords = getAdKeywords;
     }
 
     /// <summary>Called when new metadata arrives. Thread-safe.</summary>
@@ -31,7 +36,7 @@ public sealed class MetadataWriter
             if (_pending is { } pending)
             {
                 var duration = evt.Timestamp - pending.Timestamp;
-                WriteRow(pending.Timestamp, pending.Title, pending.Artist, ElemClass(pending.Title), FormatDuration(duration));
+                WriteRow(pending.Timestamp, pending.Title, pending.Artist, ElemClass(pending.Title, pending.Artist), FormatDuration(duration));
             }
 
             _pending = new PendingEntry(evt.Timestamp, string.IsNullOrEmpty(evt.Title) ? evt.Raw : evt.Title, evt.Artist);
@@ -48,7 +53,7 @@ public sealed class MetadataWriter
 
             var now = DateTimeOffset.Now;
             var duration = now - pending.Timestamp;
-            WriteRow(pending.Timestamp, pending.Title, pending.Artist, ElemClass(pending.Title), FormatDuration(duration));
+            WriteRow(pending.Timestamp, pending.Title, pending.Artist, ElemClass(pending.Title, pending.Artist), FormatDuration(duration));
             _pending = null;
             WriteRow(now, "", "", "", "");
         }
@@ -60,12 +65,29 @@ public sealed class MetadataWriter
         lock (_lock)
         {
             if (_pending is not { } pending) return;
-            WriteRow(pending.Timestamp, pending.Title, pending.Artist, ElemClass(pending.Title), "");
+            WriteRow(pending.Timestamp, pending.Title, pending.Artist, ElemClass(pending.Title, pending.Artist), "");
             _pending = null;
         }
     }
 
-    private static string ElemClass(string title) => string.IsNullOrEmpty(title) ? "B" : "M";
+    /// <summary>"B" for a blank/break marker (no title), "C" if the title/artist contains a
+    /// configured ad keyword (case-insensitive substring), otherwise "M" for ordinary music.</summary>
+    private string ElemClass(string title, string artist)
+    {
+        if (string.IsNullOrEmpty(title)) return "B";
+
+        var keywords = _getAdKeywords?.Invoke();
+        if (keywords != null)
+        {
+            var haystack = string.IsNullOrEmpty(artist) ? title : $"{artist} {title}";
+            foreach (var keyword in keywords)
+            {
+                if (!string.IsNullOrEmpty(keyword) && haystack.Contains(keyword, StringComparison.OrdinalIgnoreCase))
+                    return "C";
+            }
+        }
+        return "M";
+    }
 
     private void WriteRow(DateTimeOffset dt, string name, string artist, string elemClass, string lengthStr)
     {
