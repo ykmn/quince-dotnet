@@ -137,7 +137,7 @@ public sealed class AudioWriter
             _currentFile = outPath;
             _openDate = DateOnly.FromDateTime(now);
             _openTime = now;
-            _nextBoundary = OutputPathPlanner.ComputeNextBoundary(now, _config.FileDurationSeconds);
+            _nextBoundary = OutputPathPlanner.ComputeNextBoundary(now, _config.FileDurationMinutes * 60);
             _log.LogInformation("Открыт файл вывода: {Path} (следующая граница: {Boundary})", outPath, _nextBoundary);
         }
         catch (Win32Exception)

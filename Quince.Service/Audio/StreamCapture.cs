@@ -94,12 +94,17 @@ public sealed class StreamCapture : IAudioCapture
 
     internal static string[] BuildFfmpegArgs(string url, string streamType, bool allowInvalidSsl, int hlsBitrateIndex, string userAgent)
     {
-        var args = new List<string> { "-hide_banner", "-loglevel", "error" };
+        var args = new List<string> { "-hide_banner", "-loglevel", "error", "-fflags", "nobuffer" };
         if (allowInvalidSsl) args.AddRange(new[] { "-tls_verify", "0" });
         args.AddRange(new[] { "-user_agent", userAgent });
 
         var isHls = streamType == "hls";
-        if (isHls) args.AddRange(new[] { "-allowed_extensions", "ALL" });
+        // Without -live_start_index -1, ffmpeg's HLS demuxer starts from the oldest segment still
+        // in the live playlist window rather than the current live edge — for a typical few-segment
+        // rolling window (segments a few seconds each) that means playback has to "catch up" through
+        // everything already buffered before real-time audio arrives, unlike Icecast's single
+        // continuous connection which has no such window to drain.
+        if (isHls) args.AddRange(new[] { "-allowed_extensions", "ALL", "-live_start_index", "-1" });
 
         args.AddRange(new[] { "-i", url });
 

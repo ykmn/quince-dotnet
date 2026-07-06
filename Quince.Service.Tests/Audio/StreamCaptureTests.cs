@@ -28,6 +28,17 @@ public class StreamCaptureTests
         Assert.Contains("ALL", args);
         Assert.Contains("-map", args);
         Assert.Contains("0:a:2", args);
+        Assert.Contains("-live_start_index", args);
+        Assert.Contains("-1", args);
+    }
+
+    [Fact]
+    public void BuildFfmpegArgs_Icecast_DoesNotAddLiveStartIndex()
+    {
+        var args = StreamCapture.BuildFfmpegArgs("http://example.com/stream", "icecast",
+            allowInvalidSsl: false, hlsBitrateIndex: 0, userAgent: "TestAgent/1.0");
+
+        Assert.DoesNotContain("-live_start_index", args);
     }
 
     [Fact]

@@ -8,6 +8,7 @@ public class AudioEngineManager : IHostedService
     private readonly ChannelManager _channelManager;
     private readonly ILoggerFactory _loggerFactory;
     private readonly ILogger<AudioEngineManager> _logger;
+    private readonly AppSettingsService _appSettings;
     private readonly string _ffmpegPath;
     private readonly string _ffprobePath;
 
@@ -19,11 +20,12 @@ public class AudioEngineManager : IHostedService
     public event Action<string, GoniometerFrame>? GoniometerUpdated;
 
     public AudioEngineManager(ChannelManager channelManager, ILoggerFactory loggerFactory,
-        ILogger<AudioEngineManager> logger, IConfiguration configuration)
+        ILogger<AudioEngineManager> logger, IConfiguration configuration, AppSettingsService appSettings)
     {
         _channelManager = channelManager;
         _loggerFactory = loggerFactory;
         _logger = logger;
+        _appSettings = appSettings;
         _ffmpegPath = PathResolver.Resolve(configuration["FfmpegPath"], "tools/ffmpeg.exe");
         _ffprobePath = PathResolver.Resolve(configuration["FfprobePath"], "tools/ffprobe.exe");
 
@@ -70,6 +72,18 @@ public class AudioEngineManager : IHostedService
         lock (_lock) { return _engines.ContainsKey(channelName); }
     }
 
+    /// <summary>For output-monitoring playback: subscribes an extra consumer to a running channel's
+    /// raw audio. Returns null if the channel isn't currently running.</summary>
+    public System.Threading.Channels.ChannelReader<AudioChunk>? SubscribeAudio(string channelName, string consumerId)
+    {
+        lock (_lock) { return _engines.TryGetValue(channelName, out var engine) ? engine.Subscribe(consumerId) : null; }
+    }
+
+    public void UnsubscribeAudio(string channelName, string consumerId)
+    {
+        lock (_lock) { if (_engines.TryGetValue(channelName, out var engine)) engine.Unsubscribe(consumerId); }
+    }
+
     /// <returns>(started, eligible) — eligible counts channels whose source type supports recording, whether or not they were already running.</returns>
     public (int Started, int Eligible) StartAll()
     {
@@ -110,7 +124,8 @@ public class AudioEngineManager : IHostedService
             var engine = new ChannelEngine(config, _ffmpegPath, _ffprobePath, _loggerFactory,
                 reading => PushLevel(channelName, reading),
                 status => PushStatus(channelName, status),
-                frame => PushGoniometer(channelName, frame));
+                frame => PushGoniometer(channelName, frame),
+                () => _appSettings.Current.AdKeywords);
 
             _engines[channelName] = engine;
             try

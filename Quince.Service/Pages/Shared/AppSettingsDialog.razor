@@ -1,3 +1,4 @@
+@using Microsoft.AspNetCore.Components
 @using Quince.Service.Configuration
 @using Quince.Service.Services
 @inject AppSettingsService AppSettings
@@ -32,6 +33,32 @@
 
             <label>Цвет — красный</label>
             <input type="color" @bind="_draft.MeterColors.ColorRed" />
+
+            <label title="Устройство, на которое воспроизводится канал по кнопке ▶ на карточке канала.">Аудиовыход для прослушивания</label>
+            <div class="input-with-button">
+                <select value="@_draft.OutputDeviceUid" @onchange="OnDeviceSelected"
+                        title="Устройство, на которое воспроизводится канал по кнопке ▶ на карточке канала.">
+                    <option value="">— по умолчанию —</option>
+                    @foreach (var d in _devices)
+                    {
+                        <option value="@d.Id">@d.Name@(d.IsDefault ? " (по умолчанию)" : "")</option>
+                    }
+                    @if (!string.IsNullOrEmpty(_draft.OutputDeviceUid) && !_devices.Any(d => d.Id == _draft.OutputDeviceUid))
+                    {
+                        <option value="@_draft.OutputDeviceUid">Текущее (не обнаружено сейчас)</option>
+                    }
+                </select>
+                <button type="button" class="btn btn-small" @onclick="RefreshDevices" title="Обновить список устройств воспроизведения">🔄 Обновить</button>
+            </div>
+            @if (_deviceListError is not null)
+            {
+                <label></label>
+                <div class="form-error">@_deviceListError</div>
+            }
+
+            <label title="Слова, при наличии которых в названии/исполнителе трека метаданные помечаются классом «C» (реклама) в CSV — независимо от регистра. Через запятую.">Слова-маркеры рекламы</label>
+            <input @bind="_adKeywordsText" placeholder="Реклама, Reklama, Commercial"
+                   title="Слова, при наличии которых в названии/исполнителе трека метаданные помечаются классом «C» (реклама) в CSV — независимо от регистра. Через запятую." />
         </div>
 
         <div class="form-actions">
@@ -45,6 +72,9 @@
     [Parameter] public EventCallback OnClose { get; set; }
 
     private AppConfig _draft = new();
+    private List<Quince.Service.Audio.SoundcardCapture.RecordDeviceInfo> _devices = new();
+    private string? _deviceListError;
+    private string _adKeywordsText = "";
 
     protected override void OnInitialized()
     {
@@ -61,11 +91,38 @@
                 ColorYellow = current.MeterColors.ColorYellow,
                 ColorRed = current.MeterColors.ColorRed,
             },
+            OutputDeviceUid = current.OutputDeviceUid,
         };
+        _adKeywordsText = string.Join(", ", current.AdKeywords);
+        RefreshDevices();
     }
+
+    private void RefreshDevices()
+    {
+        try
+        {
+            _devices = AudioPlaybackService.EnumerateDevices();
+            _deviceListError = null;
+        }
+        catch (System.Runtime.InteropServices.COMException ex)
+        {
+            _devices = new();
+            _deviceListError = $"Не удалось опросить аудиоподсистему Windows (проверьте, что служба \"Windows Audio\" запущена): {ex.Message}";
+        }
+        catch (Exception ex)
+        {
+            _devices = new();
+            _deviceListError = $"Не удалось получить список устройств воспроизведения: {ex.Message}";
+        }
+    }
+
+    private void OnDeviceSelected(ChangeEventArgs e) => _draft.OutputDeviceUid = e.Value?.ToString() ?? "";
 
     private void Save()
     {
+        _draft.AdKeywords = _adKeywordsText
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .ToList();
         AppSettings.Save(_draft);
         Close();
     }
