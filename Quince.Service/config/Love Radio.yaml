@@ -1,5 +1,4 @@
 name: Love Radio
-filename: Love Radio.yaml
 source:
   type: stream
   device_name: ''
@@ -25,7 +24,7 @@ output_format:
   bit_depth: 16
   channels: 2
   bitrate_kbps: 96
-save_path: M:\Users\twelve\Projects\quince-dotnet\recording\LoveRadio
+save_path: D:\recording\LoveRadio
 date_folder_format: YYYY-MM-DD
 file_name_format: hh-mm-ss
 file_duration_seconds: 3600
@@ -34,7 +33,7 @@ retention_days: 30
 auto_start: false
 silence_detector:
   enabled: false
-  threshold_dbfs: -60.0
-  trigger_seconds: 3.0
-  resume_seconds: 1.0
+  threshold_dbfs: -60
+  trigger_seconds: 3
+  resume_seconds: 1
 metadata_path: ''

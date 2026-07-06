@@ -1,0 +1,110 @@
+@using Quince.Service.Services
+@inject FolderBrowserService Browser
+
+<div class="modal-overlay" @onclick="Cancel">
+    <div class="modal-box modal-box-wide" @onclick:stopPropagation="true">
+        <h2>Выбор папки</h2>
+
+        <div class="folder-browser-path">
+            <input @bind="_currentPath" @bind:event="oninput" @onkeydown="OnPathKeyDown"
+                   placeholder="Например, D:\recording\Retro или \\server\share\path"
+                   title="Можно ввести путь вручную и нажать «Перейти» или Enter" />
+            <button class="btn btn-small" @onclick="GoToPath">Перейти</button>
+        </div>
+
+        @if (!string.IsNullOrEmpty(_error))
+        {
+            <p class="form-error">@_error</p>
+        }
+
+        <div class="folder-browser-list">
+            @if (!string.IsNullOrEmpty(_currentPath))
+            {
+                <button class="folder-browser-item folder-browser-up" @onclick="GoUp">⬆ .. (вверх)</button>
+            }
+            @foreach (var entry in _entries)
+            {
+                <button class="folder-browser-item" @onclick="() => Navigate(entry.FullPath)" title="@entry.FullPath">📁 @entry.Name</button>
+            }
+            @if (_entries.Count == 0 && !string.IsNullOrEmpty(_currentPath))
+            {
+                <p class="folder-browser-empty">Нет вложенных папок.</p>
+            }
+        </div>
+
+        <div class="form-actions">
+            <button class="btn btn-small" @onclick="Cancel">Отмена</button>
+            <button class="btn btn-start" @onclick="Select" disabled="@string.IsNullOrWhiteSpace(_currentPath)">Выбрать эту папку</button>
+        </div>
+    </div>
+</div>
+
+@code {
+    [Parameter] public string? InitialPath { get; set; }
+    [Parameter] public EventCallback<string> OnSelected { get; set; }
+    [Parameter] public EventCallback OnClose { get; set; }
+
+    private string _currentPath = "";
+    private List<FolderBrowserService.Entry> _entries = new();
+    private string? _error;
+
+    protected override void OnInitialized()
+    {
+        _currentPath = !string.IsNullOrWhiteSpace(InitialPath) && Directory.Exists(InitialPath) ? InitialPath! : "";
+        Refresh();
+    }
+
+    private void Refresh()
+    {
+        _error = null;
+        try
+        {
+            _entries = Browser.ListSubfolders(string.IsNullOrWhiteSpace(_currentPath) ? null : _currentPath).ToList();
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            _error = $"Не удалось прочитать папку: {ex.Message}";
+            _entries = new();
+        }
+    }
+
+    private void Navigate(string path)
+    {
+        _currentPath = path;
+        Refresh();
+    }
+
+    private void GoUp()
+    {
+        _currentPath = Browser.GetParent(_currentPath) ?? "";
+        Refresh();
+    }
+
+    private void GoToPath()
+    {
+        if (string.IsNullOrWhiteSpace(_currentPath))
+        {
+            Refresh();
+            return;
+        }
+        if (!Directory.Exists(_currentPath))
+        {
+            _error = "Папка не существует или недоступна.";
+            return;
+        }
+        Refresh();
+    }
+
+    private void OnPathKeyDown(Microsoft.AspNetCore.Components.Web.KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter") GoToPath();
+    }
+
+    private async Task Select()
+    {
+        await OnSelected.InvokeAsync(_currentPath);
+        await OnClose.InvokeAsync();
+    }
+
+    private async Task Cancel() => await OnClose.InvokeAsync();
+}

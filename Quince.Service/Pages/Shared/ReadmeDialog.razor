@@ -1,0 +1,30 @@
+<div class="modal-overlay" @onclick="Close">
+    <div class="modal-box modal-box-wide" @onclick:stopPropagation="true">
+        <h2>README.md</h2>
+        <pre class="readme-text">@_content</pre>
+        <div class="form-actions">
+            <button class="btn btn-small" @onclick="Close">Закрыть</button>
+        </div>
+    </div>
+</div>
+
+@code {
+    [Parameter] public EventCallback OnClose { get; set; }
+
+    private string _content = "";
+
+    protected override void OnInitialized()
+    {
+        var path = Path.Combine(AppContext.BaseDirectory, "README.md");
+        try
+        {
+            _content = File.Exists(path) ? File.ReadAllText(path) : "Файл README.md не найден рядом с приложением.";
+        }
+        catch (IOException ex)
+        {
+            _content = $"Не удалось прочитать README.md: {ex.Message}";
+        }
+    }
+
+    private void Close() => OnClose.InvokeAsync();
+}

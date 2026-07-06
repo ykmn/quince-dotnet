@@ -250,6 +250,30 @@ html, body {
     border-color: #2563eb;
 }
 
+.status-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin: 0 16px 8px;
+    padding: 6px 10px;
+    background: #eff6ff;
+    border: 1px solid #bfdbfe;
+    border-radius: 8px;
+    color: #1e3a8a;
+    font-size: 12px;
+}
+
+.status-bar-close {
+    background: none;
+    border: none;
+    color: #1e3a8a;
+    cursor: pointer;
+    font-size: 11px;
+    padding: 0 2px;
+    flex: 0 0 auto;
+}
+
 .channel-list {
     display: flex;
     flex-direction: column;
@@ -265,8 +289,8 @@ html, body {
 
 .channel-card {
     background: #ffffff;
-    border: 1px solid #e5e7eb;
-    border-left: 1px solid #e5e7eb;
+    border: 1px solid #9ca3af;
+    border-left: 1px solid #9ca3af;
     border-radius: 8px;
     padding: 6px 8px;
 }
@@ -297,6 +321,7 @@ html, body {
 .status-dot.dot-yellow { background: #ca8a04; }
 .status-dot.dot-red { background: #dc2626; }
 .status-dot.dot-purple { background: #7c3aed; }
+.status-dot.dot-cyan { background: #0891b2; }
 
 @keyframes qc-status-pulse {
     0%, 100% { opacity: 1; }
@@ -352,9 +377,9 @@ html, body {
 }
 
 .btn-delete {
-    background: #f9fafb;
-    color: #9ca3af;
-    border: 1px solid #e5e7eb;
+    background: #fef2f2;
+    color: #dc2626;
+    border: 1px solid #fecaca;
     padding: 0 8px;
 }
 
@@ -402,21 +427,29 @@ html, body {
 .level-label {
     width: 18px;
     text-align: right;
-    color: #555555;
+    color: #1f2937;
+    font-weight: 700;
     font-size: 9px;
 }
 
 .level-track {
+    position: relative;
     flex: 1;
     height: 10px;
     background: #d4d4d4;
     min-width: 80px;
+    overflow: hidden;
 }
 
-.level-fill {
-    height: 10px;
-    width: 0;
-    background: linear-gradient(to right, #16a34a, #ca8a04, #dc2626);
+/* Anchored to the right, hides the not-yet-reached portion of the track's zone gradient —
+   the visible (uncovered) segment on the left always shows each zone's real color. */
+.level-cover {
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: 100%;
+    background: #d4d4d4;
 }
 
 .level-value {
@@ -435,4 +468,426 @@ html, body {
     padding: 4px 16px;
     position: sticky;
     bottom: 0;
+}
+
+/* ── Dialogs (edit/settings/indicators/readme/delete-confirm) ──── */
+
+.modal-box-wide {
+    width: 640px;
+    max-width: calc(100vw - 32px);
+    max-height: calc(100vh - 64px);
+    overflow-y: auto;
+}
+
+.form-error {
+    background: #fee2e2;
+    color: #b91c1c;
+    border: 1px solid #fecaca;
+    border-radius: 6px;
+    padding: 6px 10px;
+    font-size: 12px;
+    margin: 8px 0;
+}
+
+.form-hint-ok {
+    background: #dcfce7;
+    color: #15803d;
+    border: 1px solid #bbf7d0;
+    border-radius: 6px;
+    padding: 6px 10px;
+    font-size: 12px;
+    margin: 8px 0;
+}
+
+.form-hint-warn {
+    background: #fff7ed;
+    color: #cc7700;
+    border: 1px solid #fed7aa;
+    border-radius: 6px;
+    padding: 6px 10px;
+    font-size: 12px;
+    margin: 8px 0;
+}
+
+.form-hint-neutral {
+    background: #f3f4f6;
+    color: #555555;
+    border: 1px solid #e5e7eb;
+    border-radius: 6px;
+    padding: 6px 10px;
+    font-size: 12px;
+    margin: 8px 0;
+}
+
+.form-grid {
+    display: grid;
+    grid-template-columns: 200px 1fr;
+    gap: 8px 12px;
+    align-items: center;
+    margin: 12px 0;
+}
+
+.form-grid label {
+    font-size: 12px;
+    color: #4b5563;
+}
+
+.form-grid input[type="text"],
+.form-grid input:not([type]),
+.form-grid input[type="number"],
+.form-grid select {
+    width: 100%;
+    box-sizing: border-box;
+    background: #ffffff;
+    border: 1px solid #d1d5db;
+    border-radius: 6px;
+    padding: 5px 8px;
+    color: #111827;
+    font-size: 12px;
+    font-family: inherit;
+}
+
+.form-grid input[type="checkbox"] {
+    justify-self: start;
+    width: 16px;
+    height: 16px;
+}
+
+.form-grid input[type="color"] {
+    width: 48px;
+    height: 26px;
+    padding: 0;
+    border: 1px solid #d1d5db;
+    border-radius: 6px;
+}
+
+.form-grid input:focus, .form-grid select:focus {
+    outline: none;
+    border-color: #2563eb;
+}
+
+.form-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    margin-top: 12px;
+}
+
+.form-actions .btn {
+    margin-top: 0;
+}
+
+.indicators-list {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    margin: 12px 0;
+}
+
+.indicator-row {
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    padding: 10px 12px;
+}
+
+.indicator-name {
+    font-weight: 700;
+    font-size: 13px;
+    color: #111827;
+    margin-bottom: 6px;
+}
+
+.indicator-state {
+    font-weight: 400;
+    color: #9ca3af;
+    font-size: 11px;
+}
+
+.indicator-lufs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin-top: 6px;
+    color: #6b7280;
+    font-size: 11px;
+    font-family: monospace;
+}
+
+.readme-text {
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-size: 12px;
+    line-height: 1.5;
+    color: #111827;
+    background: #f9fafb;
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    padding: 12px;
+    max-height: 60vh;
+    overflow-y: auto;
+}
+
+/* ── Body layout: card list + optional docked indicators sidebar side by side ──── */
+
+.app-body-row {
+    display: flex;
+    align-items: flex-start;
+}
+
+.app-main {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+/* ── Per-channel indicators side panel (▦ button on a channel card) ────
+   A normal flex sibling of .app-main (not an overlay) — it shrinks the card list's
+   available width instead of floating on top of it. `sticky` keeps it pinned to the
+   viewport while the card list scrolls independently. */
+
+.indicators-panel {
+    position: sticky;
+    top: 100px;
+    align-self: flex-start;
+    flex: 0 0 340px;
+    width: 340px;
+    max-width: 40vw;
+    height: calc(100vh - 100px);
+    background: #ffffff;
+    border-left: 1px solid #e5e7eb;
+    box-shadow: -4px 0 20px rgba(0, 0, 0, 0.12);
+    display: flex;
+    flex-direction: column;
+    padding: 12px;
+    box-sizing: border-box;
+}
+
+@media (max-width: 640px) {
+    .app-body-row {
+        flex-direction: column;
+    }
+
+    .indicators-panel {
+        position: static;
+        width: 100%;
+        max-width: 100%;
+        flex: 0 0 auto;
+        height: 60vh;
+        border-left: none;
+        border-top: 1px solid #e5e7eb;
+    }
+}
+
+.indicators-panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 8px;
+    flex: 0 0 auto;
+}
+
+.indicators-panel-title {
+    font-weight: 700;
+    font-size: 13px;
+    color: #111827;
+}
+
+.indicators-panel-meters {
+    flex: 1 1 auto;
+    min-height: 0;
+    display: flex;
+    align-items: stretch;
+    gap: 10px;
+    padding: 8px 4px;
+}
+
+.vmeter {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+
+/* Groups TP L + TP R with a tighter 3px gap than the rest of the meters, which stay at the
+   outer .indicators-panel-meters gap (10px) — flex: 2 so the pair takes roughly the same total
+   width the two individual meters would have taken outside a group. */
+.vmeter-group {
+    flex: 2;
+    min-width: 0;
+    display: flex;
+    gap: 3px;
+}
+
+/* -Inf..0 LU scale to the left of the meters. The three hidden placeholder rows mirror
+   .vmeter's label/value/max-button so .vscale-track lines up vertically with .vmeter-track
+   exactly, via ordinary flex sizing rather than hard-coded pixel offsets. */
+.vscale {
+    flex: 0 0 26px;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+}
+
+.vscale-track {
+    position: relative;
+    flex: 1 1 auto;
+    min-height: 0;
+    width: 100%;
+}
+
+.vscale-tick {
+    position: absolute;
+    right: 2px;
+    transform: translateY(-50%);
+    font-size: 10px;
+    font-weight: 700;
+    font-family: monospace;
+    color: #111827;
+    white-space: nowrap;
+    line-height: 1;
+}
+
+.vmeter-track {
+    position: relative;
+    flex: 1 1 auto;
+    min-height: 0;
+    width: 22px;
+    background: #d4d4d4;
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+/* Anchored to the top, hides the not-yet-reached (upper) portion of the track's zone gradient. */
+.vmeter-cover {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 100%;
+    background: #d4d4d4;
+}
+
+.vmeter-label {
+    font-size: 10px;
+    font-weight: 700;
+    color: #1f2937;
+    text-align: center;
+}
+
+.vmeter-value {
+    margin-top: 2px;
+    font-size: 10px;
+    font-family: monospace;
+    color: #111827;
+    white-space: nowrap;
+}
+
+.meter-max {
+    margin-top: 1px;
+    margin-bottom: 6px;
+    font: inherit;
+    font-size: 9px;
+    font-family: monospace;
+    color: #6b7280;
+    white-space: nowrap;
+    cursor: pointer;
+    text-decoration: underline dotted;
+    background: none;
+    border: none;
+    padding: 0;
+}
+
+.meter-max:hover {
+    color: #374151;
+}
+
+.indicators-panel-goniometer {
+    flex: 0 0 200px;
+    width: 200px;
+    height: 200px;
+    margin: 8px auto 0;
+    background: #10151f;
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+/* ── Save-path field with Browse... button, and the folder browser dialog ──── */
+
+.input-with-button {
+    display: flex;
+    gap: 6px;
+    align-items: stretch;
+}
+
+.input-with-button input,
+.input-with-button select {
+    flex: 1;
+    min-width: 0;
+}
+
+.input-with-button .btn {
+    height: auto;
+    flex-shrink: 0;
+}
+
+.folder-browser-path {
+    display: flex;
+    gap: 6px;
+    margin: 8px 0;
+}
+
+.folder-browser-path input {
+    flex: 1;
+    min-width: 0;
+    box-sizing: border-box;
+    background: #ffffff;
+    border: 1px solid #d1d5db;
+    border-radius: 6px;
+    padding: 5px 8px;
+    color: #111827;
+    font-size: 12px;
+    font-family: inherit;
+}
+
+.folder-browser-list {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    max-height: 40vh;
+    overflow-y: auto;
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    padding: 4px;
+}
+
+.folder-browser-item {
+    display: block;
+    width: 100%;
+    text-align: left;
+    background: transparent;
+    border: none;
+    border-radius: 6px;
+    padding: 6px 8px;
+    font-size: 12px;
+    color: #111827;
+    cursor: pointer;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.folder-browser-item:hover {
+    background: #f3f4f6;
+}
+
+.folder-browser-up {
+    color: #6b7280;
+    font-weight: 600;
+}
+
+.folder-browser-empty {
+    color: #9ca3af;
+    font-size: 12px;
+    padding: 6px 8px;
+    margin: 0;
 }

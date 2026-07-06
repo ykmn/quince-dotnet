@@ -1,0 +1,27 @@
+@using Quince.Service.Configuration
+@using Quince.Service.Services
+@inject ChannelManager ChannelManager
+
+<div class="modal-overlay" @onclick="Close">
+    <div class="modal-box" @onclick:stopPropagation="true">
+        <h2>Удалить канал?</h2>
+        <p>Канал «@Config.Name» и его файл конфигурации (@Config.Filename) будут удалены безвозвратно. Уже записанные аудиофайлы не удаляются.</p>
+        <div class="form-actions">
+            <button class="btn btn-small" @onclick="Close">Отмена</button>
+            <button class="btn btn-stop" @onclick="Confirm">Удалить</button>
+        </div>
+    </div>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public ChannelConfig Config { get; set; } = null!;
+    [Parameter] public EventCallback OnClose { get; set; }
+
+    private void Confirm()
+    {
+        ChannelManager.Delete(Config.Filename);
+        Close();
+    }
+
+    private void Close() => OnClose.InvokeAsync();
+}

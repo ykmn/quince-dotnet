@@ -1,0 +1,74 @@
+@using Quince.Service.Configuration
+@using Quince.Service.Services
+@inject AppSettingsService AppSettings
+
+<div class="modal-overlay" @onclick="Close">
+    <div class="modal-box" @onclick:stopPropagation="true">
+        <h2>Настройки приложения</h2>
+
+        <div class="form-grid">
+            <label>Уровень логирования</label>
+            <select @bind="_draft.LogLevel">
+                <option value="DEBUG">DEBUG</option>
+                <option value="INFO">INFO</option>
+                <option value="WARNING">WARNING</option>
+                <option value="ERROR">ERROR</option>
+            </select>
+
+            <label>Хранить логи, дней</label>
+            <input type="number" @bind="_draft.LogRetentionDays" />
+
+            <label>Порог жёлтой зоны, dBFS</label>
+            <input type="number" step="0.1" @bind="_draft.MeterColors.ZoneYellowDb" />
+
+            <label>Порог красной зоны, dBFS</label>
+            <input type="number" step="0.1" @bind="_draft.MeterColors.ZoneRedDb" />
+
+            <label>Цвет — зелёный</label>
+            <input type="color" @bind="_draft.MeterColors.ColorGreen" />
+
+            <label>Цвет — жёлтый</label>
+            <input type="color" @bind="_draft.MeterColors.ColorYellow" />
+
+            <label>Цвет — красный</label>
+            <input type="color" @bind="_draft.MeterColors.ColorRed" />
+        </div>
+
+        <div class="form-actions">
+            <button class="btn btn-small" @onclick="Close">Отмена</button>
+            <button class="btn btn-start" @onclick="Save">Сохранить</button>
+        </div>
+    </div>
+</div>
+
+@code {
+    [Parameter] public EventCallback OnClose { get; set; }
+
+    private AppConfig _draft = new();
+
+    protected override void OnInitialized()
+    {
+        var current = AppSettings.Current;
+        _draft = new AppConfig
+        {
+            LogLevel = current.LogLevel,
+            LogRetentionDays = current.LogRetentionDays,
+            MeterColors = new MeterColorsConfig
+            {
+                ZoneYellowDb = current.MeterColors.ZoneYellowDb,
+                ZoneRedDb = current.MeterColors.ZoneRedDb,
+                ColorGreen = current.MeterColors.ColorGreen,
+                ColorYellow = current.MeterColors.ColorYellow,
+                ColorRed = current.MeterColors.ColorRed,
+            },
+        };
+    }
+
+    private void Save()
+    {
+        AppSettings.Save(_draft);
+        Close();
+    }
+
+    private void Close() => OnClose.InvokeAsync();
+}

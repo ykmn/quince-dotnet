@@ -48,7 +48,7 @@ public class OutputFormatConfig
 {
     public string Mode { get; set; } = "original";
     public string FileFormat { get; set; } = "mp3";
-    public int SampleRate { get; set; } = 48000;
+    public int SampleRate { get; set; } = 44100;
     public int BitDepth { get; set; } = 16;
     public int Channels { get; set; } = 2;
     public int BitrateKbps { get; set; } = 96;

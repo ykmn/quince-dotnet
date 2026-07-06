@@ -6,18 +6,16 @@ public class FileLogger : ILogger
 {
     private readonly FileLoggerProvider _provider;
     private readonly LoggerExternalScopeProvider _scopeProvider;
-    private readonly LogLevel _minLevel;
 
-    public FileLogger(FileLoggerProvider provider, LoggerExternalScopeProvider scopeProvider, LogLevel minLevel)
+    public FileLogger(FileLoggerProvider provider, LoggerExternalScopeProvider scopeProvider)
     {
         _provider = provider;
         _scopeProvider = scopeProvider;
-        _minLevel = minLevel;
     }
 
     public IDisposable BeginScope<TState>(TState state) where TState : notnull => _scopeProvider.Push(state);
 
-    public bool IsEnabled(LogLevel logLevel) => logLevel != LogLevel.None && logLevel >= _minLevel;
+    public bool IsEnabled(LogLevel logLevel) => logLevel != LogLevel.None && logLevel >= _provider.MinLevel;
 
     public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
     {

@@ -6,25 +6,13 @@ namespace Quince.Service.Audio;
 
 public enum StreamStatus { Stopped, Connecting, Streaming, Reconnecting, Error }
 
-public sealed class StreamCapture
+public sealed class StreamCapture : IAudioCapture
 {
     public const int SampleRate = 44100;
     public const int Channels = 2;
     private const int BlockFrames = 4096;
     private const int BytesPerSample = 4;
     private static readonly int ReadBytes = BlockFrames * Channels * BytesPerSample;
-
-    private static readonly string[] DesktopUserAgents =
-    {
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15",
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:126.0) Gecko/20100101 Firefox/126.0",
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:125.0) Gecko/20100101 Firefox/125.0",
-        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36 Edg/125.0.0.0",
-    };
 
     private readonly string _ffmpegPath;
     private readonly string _url;
@@ -54,6 +42,12 @@ public sealed class StreamCapture
         _reconnectDelaySeconds = Math.Max(1, reconnectDelaySeconds);
         _log = log;
     }
+
+    // Explicit interface implementation: the const fields above keep working for the existing
+    // static usages (e.g. BuildFfmpegArgs), while IAudioCapture consumers see them as instance
+    // properties (a const field and an instance property can't share a simple name in C#).
+    int IAudioCapture.SampleRate => SampleRate;
+    int IAudioCapture.Channels => Channels;
 
     public StreamStatus Status => _status;
     public int ReconnectAttempt => _reconnectAttempt;
@@ -130,7 +124,7 @@ public sealed class StreamCapture
             _status = StreamStatus.Connecting;
             _log.LogInformation("Подключение к {Url} (попытка {Attempt})", _url, _reconnectAttempt);
 
-            var ua = DesktopUserAgents[Random.Shared.Next(DesktopUserAgents.Length)];
+            var ua = UserAgents.RandomDesktop();
             var args = BuildFfmpegArgs(_url, _streamType, _allowInvalidSsl, _hlsBitrateIndex, ua);
 
             Process? process = null;

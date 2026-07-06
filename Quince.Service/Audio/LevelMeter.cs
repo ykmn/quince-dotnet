@@ -7,7 +7,13 @@ public sealed class LevelMeter
 {
     private const double MWindowSeconds = 0.400;
     private const double SWindowSeconds = 3.0;
-    private const double UpdateIntervalSeconds = 0.100;
+    // Each update pushes a LevelReading through AudioEngineManager to every subscribed Blazor
+    // component and triggers a StateHasChanged/render round-trip over that circuit's single SignalR
+    // connection. At 0.1s (10Hz) this was fine for 1-2 channels but with ~5 channels recording at
+    // once (50 renders/sec on one connection) the UI visibly lagged/froze — cut to 5Hz, still reads
+    // as "live" for a status meter while roughly halving render traffic.
+    private const double UpdateIntervalSeconds = 0.2;
+    private const int GoniometerMaxPoints = 256;
 
     // ~1 hour of integrated-loudness block history at 400ms/block (MWindowSeconds), i.e.
     // 3600s / 0.4s = 9000 blocks. Bounds memory/CPU for 24/7 operation instead of growing
@@ -17,6 +23,7 @@ public sealed class LevelMeter
     private readonly ChannelReader<AudioChunk> _reader;
     private readonly int _sampleRate;
     private readonly Action<LevelReading> _onUpdate;
+    private readonly Action<GoniometerFrame>? _onGoniometerUpdate;
     private readonly ILogger _log;
 
     private readonly KWeightingFilter _kWeight;
@@ -40,11 +47,13 @@ public sealed class LevelMeter
     private CancellationTokenSource? _cts;
     private Task? _task;
 
-    public LevelMeter(ChannelReader<AudioChunk> reader, int sampleRate, int channels, Action<LevelReading> onUpdate, ILogger log)
+    public LevelMeter(ChannelReader<AudioChunk> reader, int sampleRate, int channels, Action<LevelReading> onUpdate, ILogger log,
+        Action<GoniometerFrame>? onGoniometerUpdate = null)
     {
         _reader = reader;
         _sampleRate = sampleRate;
         _onUpdate = onUpdate;
+        _onGoniometerUpdate = onGoniometerUpdate;
         _log = log;
 
         _kWeight = new KWeightingFilter(sampleRate);
@@ -130,6 +139,19 @@ public sealed class LevelMeter
         lock (_peakLock)
         {
             if (tpOverall > _truePeakMaxDb) _truePeakMaxDb = tpOverall;
+        }
+
+        if (_onGoniometerUpdate != null)
+        {
+            try
+            {
+                var right = channels >= 2 ? perChannel[1] : perChannel[0];
+                _onGoniometerUpdate(GoniometerFrame.Decimate(perChannel[0], right, GoniometerMaxPoints));
+            }
+            catch (Exception ex)
+            {
+                _log.LogError(ex, "Колбэк обновления гониометра выбросил исключение");
+            }
         }
 
         // K-weight in place (mutates perChannel) for loudness measurement only.

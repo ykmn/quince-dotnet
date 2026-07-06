@@ -2,10 +2,21 @@
 @using Quince.Service.Configuration
 @using Quince.Service.Services
 @inject ChannelManager ChannelManager
+@inject ChannelUiState UiState
+@implements IDisposable
 
 <div class="filter-row">
-    <input @bind="FilterText" @bind:event="oninput" placeholder="Фильтр по названию канала…" />
+    <input @bind="FilterText" @bind:event="oninput" placeholder="Фильтр по названию канала…"
+           title="Показывать только каналы, в названии которых встречается введённый текст (регистр не важен)." />
 </div>
+
+@if (!string.IsNullOrEmpty(UiState.StatusMessage))
+{
+    <div class="status-bar">
+        <span>@UiState.StatusMessage</span>
+        <button type="button" class="status-bar-close" @onclick="UiState.ClearStatusMessage" title="Скрыть">✕</button>
+    </div>
+}
 
 @if (!FilteredChannels.Any())
 {
@@ -25,7 +36,7 @@ else
     <div class="channel-list">
         @foreach (var ch in FilteredChannels)
         {
-            <ChannelCard Config="ch" />
+            <ChannelCard @key="ch.Filename" Config="ch" />
         }
     </div>
 }
@@ -39,4 +50,26 @@ else
         ChannelManager.Channels.Where(c =>
             string.IsNullOrWhiteSpace(FilterText) ||
             c.Name.Contains(FilterText, StringComparison.OrdinalIgnoreCase));
+
+    protected override void OnInitialized()
+    {
+        ChannelManager.ChannelAdded += OnChannelsChanged;
+        ChannelManager.ChannelUpdated += OnChannelUpdated;
+        ChannelManager.ChannelRemoved += OnChannelsChanged;
+        UiState.Changed += OnUiStateChanged;
+    }
+
+    private void OnChannelsChanged(ChannelConfig config) => InvokeAsync(StateHasChanged);
+
+    private void OnChannelUpdated(ChannelConfig oldConfig, ChannelConfig newConfig) => InvokeAsync(StateHasChanged);
+
+    private void OnUiStateChanged() => InvokeAsync(StateHasChanged);
+
+    public void Dispose()
+    {
+        ChannelManager.ChannelAdded -= OnChannelsChanged;
+        ChannelManager.ChannelUpdated -= OnChannelUpdated;
+        ChannelManager.ChannelRemoved -= OnChannelsChanged;
+        UiState.Changed -= OnUiStateChanged;
+    }
 }

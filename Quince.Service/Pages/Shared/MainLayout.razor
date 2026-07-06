@@ -1,8 +1,14 @@
 @inherits LayoutComponentBase
+@using Quince.Service.Services
+@inject ChannelManager ChannelManager
+@inject AudioEngineManager EngineManager
+@inject ChannelUiState UiState
+@inject Microsoft.Extensions.Hosting.IHostApplicationLifetime Lifetime
+@implements IDisposable
 
 <div class="topbar">
     <div class="app-brand">
-        <a class="app-brand-link" href="/">
+        <a class="app-brand-link" href="/" title="На главную (список каналов)">
             <img src="icon.svg" width="64" height="64" alt="" />
             <span class="app-name">Айва</span>
         </a>
@@ -13,32 +19,34 @@
         {
             <div class="menu-overlay" @onclick="CloseMenu"></div>
             <div class="hamburger-menu" @onclick:stopPropagation="true">
-                <button class="menu-item" @onclick="CloseMenu">➕ Новый канал записи…</button>
+                <button class="menu-item" title="Открыть форму создания нового канала записи" @onclick="NewChannel">➕ Новый канал записи…</button>
                 <div class="menu-sep"></div>
-                <button class="menu-item" @onclick="CloseMenu">⚙️ Настройки…</button>
+                <button class="menu-item" title="Общие настройки приложения (уровень логирования, хранение логов, цвета шкал индикаторов)" @onclick="OpenSettings">⚙️ Настройки…</button>
                 <div class="menu-sep"></div>
-                <button class="menu-item" @onclick="CloseMenu">🔄 Обновить конфигурацию</button>
-                <button class="menu-item" @onclick="CloseMenu">🔁 Перезапуск приложения…</button>
+                <button class="menu-item" title="Пересканировать папку config/ и обновить список каналов без перезапуска приложения" @onclick="RefreshConfig">🔄 Обновить конфигурацию</button>
+                <button class="menu-item" title="Остановить все каналы и завершить процесс приложения" @onclick="AskRestart">🔁 Перезапуск приложения…</button>
                 <div class="menu-sep"></div>
-                <button class="menu-item" @onclick="CloseMenu">▶️ Запустить запись всех каналов</button>
-                <button class="menu-item" @onclick="CloseMenu">⏹️ Остановить запись всех каналов</button>
+                <button class="menu-item" title="Начать запись для всех каналов, поддерживающих запись (тип «Поток» или «Звуковая карта»)" @onclick="StartAll">▶️ Запустить запись всех каналов</button>
+                <button class="menu-item" title="Остановить запись для всех активных каналов" @onclick="StopAll">⏹️ Остановить запись всех каналов</button>
                 <div class="menu-sep"></div>
-                <button class="menu-item" @onclick="CloseMenu">▦ Индикаторы уровней</button>
+                <button class="menu-item" title="Открыть README.md текущей установки в отдельном окне" @onclick="OpenReadme">📄 Показать файл README.md</button>
                 <div class="menu-sep"></div>
-                <button class="menu-item" @onclick="CloseMenu">📄 Показать файл README.md</button>
-                <div class="menu-sep"></div>
-                <span class="menu-version">@_version</span>
-                <button class="menu-item" @onclick="ShowAbout">ℹ️ О программе…</button>
-                <div class="menu-sep"></div>
-                <button class="menu-item" @onclick="CloseMenu">🚪 Выход</button>
+                <span class="menu-version" title="Текущая версия приложения">@_version</span>
+                <button class="menu-item" title="Информация о программе" @onclick="ShowAbout">ℹ️ О программе…</button>
             </div>
         }
     </div>
 </div>
 
-<main>
-    @Body
-</main>
+<div class="app-body-row">
+    <main class="app-main">
+        @Body
+    </main>
+    @if (UiState.IndicatorsOpen && UiState.IndicatorsChannelName is not null)
+    {
+        <IndicatorsPanel ChannelName="@UiState.IndicatorsChannelName" OnClose="UiState.CloseIndicators" />
+    }
+</div>
 
 @if (_aboutOpen)
 {
@@ -52,10 +60,52 @@
     </div>
 }
 
+@if (_confirmRestart)
+{
+    <div class="modal-overlay" @onclick="() => _confirmRestart = false">
+        <div class="modal-box" @onclick:stopPropagation="true">
+            <h2>Перезапуск приложения</h2>
+            <p>Все каналы будут остановлены, приложение завершит работу. Если оно установлено как служба Windows с настроенным автоматическим восстановлением — служба перезапустится сама; при запуске через «dotnet run» его нужно будет запустить заново вручную.</p>
+            <div class="form-actions">
+                <button class="btn btn-small" @onclick="() => _confirmRestart = false">Отмена</button>
+                <button class="btn btn-stop" @onclick="DoRestart">Перезапустить</button>
+            </div>
+        </div>
+    </div>
+}
+
+@if (UiState.EditDialogOpen)
+{
+    <ChannelEditDialog />
+}
+
+@if (UiState.DeleteTarget is not null)
+{
+    <DeleteChannelDialog Config="UiState.DeleteTarget" OnClose="UiState.CloseDeleteChannel" />
+}
+
+@if (UiState.SettingsOpen)
+{
+    <AppSettingsDialog OnClose="UiState.CloseSettings" />
+}
+
+@if (UiState.ReadmeOpen)
+{
+    <ReadmeDialog OnClose="UiState.CloseReadme" />
+}
+
 @code {
     private bool _menuOpen;
     private bool _aboutOpen;
+    private bool _confirmRestart;
     private readonly string _version = "v" + VersionInfo.Version;
+
+    protected override void OnInitialized()
+    {
+        UiState.Changed += OnUiStateChanged;
+    }
+
+    private void OnUiStateChanged() => InvokeAsync(StateHasChanged);
 
     private void ToggleMenu() => _menuOpen = !_menuOpen;
     private void CloseMenu() => _menuOpen = false;
@@ -67,4 +117,63 @@
     }
 
     private void CloseAbout() => _aboutOpen = false;
+
+    private void NewChannel()
+    {
+        CloseMenu();
+        UiState.OpenCreateChannel();
+    }
+
+    private void OpenSettings()
+    {
+        CloseMenu();
+        UiState.OpenSettings();
+    }
+
+    private void RefreshConfig()
+    {
+        CloseMenu();
+        var result = ChannelManager.Reload();
+        UiState.SetStatusMessage(result.Error is not null
+            ? $"Ошибка обновления конфигурации: {result.Error}"
+            : $"Конфигурация обновлена: новых — {result.Added}, изменено — {result.Updated}, удалено — {result.Removed}.");
+    }
+
+    private void AskRestart()
+    {
+        CloseMenu();
+        _confirmRestart = true;
+    }
+
+    private void DoRestart()
+    {
+        _confirmRestart = false;
+        UiState.SetStatusMessage("Перезапуск приложения…");
+        Lifetime.StopApplication();
+    }
+
+    private void StartAll()
+    {
+        CloseMenu();
+        var (started, eligible) = EngineManager.StartAll();
+        UiState.SetStatusMessage($"Запущено каналов: {started} (подходящих: {eligible}).");
+    }
+
+    private void StopAll()
+    {
+        CloseMenu();
+        var stopped = EngineManager.StopAll();
+        UiState.SetStatusMessage($"Остановлено каналов: {stopped}.");
+    }
+
+    private void OpenReadme()
+    {
+        CloseMenu();
+        UiState.OpenReadme();
+    }
+
+    public void Dispose()
+    {
+        UiState.Changed -= OnUiStateChanged;
+    }
 }

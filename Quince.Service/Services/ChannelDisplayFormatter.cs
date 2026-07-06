@@ -1,3 +1,4 @@
+using Quince.Service.Audio;
 using Quince.Service.Configuration;
 
 namespace Quince.Service.Services;
@@ -24,7 +25,10 @@ public static class ChannelDisplayFormatter
 
     public static string FormatOutput(ChannelConfig config)
     {
-        var outFmt = config.OutputFormat;
+        // "original" mode resolves its actual codec/extension from the source (see
+        // AudioWriter.ResolveEffectiveFormat) rather than the raw config value, which can be a
+        // stale/default leftover (e.g. "mp3") never actually used for that mode.
+        var outFmt = AudioWriter.ResolveEffectiveFormat(config);
         var fmt = outFmt.FileFormat.ToUpperInvariant();
         var quality = outFmt.FileFormat is "mp3" or "aac"
             ? $"{outFmt.BitrateKbps}kbps"

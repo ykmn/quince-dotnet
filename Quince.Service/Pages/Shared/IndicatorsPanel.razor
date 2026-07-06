@@ -1,0 +1,164 @@
+@using System.Globalization
+@using Quince.Service.Configuration
+@using Quince.Service.Services
+@using Quince.Service.Audio
+@inject ChannelManager ChannelManager
+@inject AudioEngineManager EngineManager
+@inject AppSettingsService AppSettings
+@implements IDisposable
+
+<div class="indicators-panel">
+    <div class="indicators-panel-header">
+        <div class="indicators-panel-title">
+            @ChannelName
+            <span class="indicator-state">(@(SingleChannel is null ? "не найден" : (EngineManager.IsRunning(ChannelName) ? "запись" : "остановлен")))</span>
+        </div>
+        <button class="btn btn-small" @onclick="Close">✕</button>
+    </div>
+
+    @if (SingleChannel is null)
+    {
+        <p>Канал не найден (возможно, был удалён).</p>
+    }
+    else
+    {
+        var level = GetLevel(ChannelName);
+        var max = GetMax(ChannelName);
+        var meters = VMeters(level, max).ToList();
+        <div class="indicators-panel-meters">
+            <div class="vscale">
+                <div class="vmeter-label" style="visibility:hidden">·</div>
+                <div class="vmeter-value" style="visibility:hidden">·</div>
+                <div class="meter-max" style="visibility:hidden">·</div>
+                <div class="vscale-track">
+                    @foreach (var (pct, label) in ScaleTicks())
+                    {
+                        <div class="vscale-tick" style="top:@((100.0 - pct).ToString(CultureInfo.InvariantCulture))%;">@label</div>
+                    }
+                </div>
+            </div>
+            <div class="vmeter-group">
+                @foreach (var m in meters.Take(2))
+                {
+                    <div class="vmeter">
+                        <div class="vmeter-label">@m.Label</div>
+                        <div class="vmeter-value">@(FormatDb(m.Db))</div>
+                        <button type="button" class="meter-max" @onclick="() => ResetMax(ChannelName)" title="Пиковый максимум с момента запуска/последнего сброса — клик сбрасывает все максимумы канала">макс: @(FormatDb(m.MaxDb))</button>
+                        <div class="vmeter-track" style="background: @(TrackGradient);"><div class="vmeter-cover" style="height:@(CoverPercentText(m.Db))%;"></div></div>
+                    </div>
+                }
+            </div>
+            @foreach (var m in meters.Skip(2))
+            {
+                <div class="vmeter">
+                    <div class="vmeter-label">@m.Label</div>
+                    <div class="vmeter-value">@(FormatDb(m.Db))</div>
+                    <button type="button" class="meter-max" @onclick="() => ResetMax(ChannelName)" title="Пиковый максимум с момента запуска/последнего сброса — клик сбрасывает все максимумы канала">макс: @(FormatDb(m.MaxDb))</button>
+                    <div class="vmeter-track" style="background: @(TrackGradient);"><div class="vmeter-cover" style="height:@(CoverPercentText(m.Db))%;"></div></div>
+                </div>
+            }
+        </div>
+        <div class="indicators-panel-goniometer">
+            <Goniometer ChannelName="@ChannelName" />
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired] public string ChannelName { get; set; } = "";
+    [Parameter] public EventCallback OnClose { get; set; }
+
+    private readonly Dictionary<string, LevelReading> _levels = new();
+    private readonly Dictionary<string, PeakMax> _maxes = new();
+
+    private ChannelConfig? SingleChannel => ChannelManager.Channels.FirstOrDefault(c => c.Name == ChannelName);
+
+    protected override void OnInitialized()
+    {
+        EngineManager.LevelUpdated += OnLevelUpdated;
+        EngineManager.StatusUpdated += OnStatusUpdated;
+        AppSettings.Changed += OnSettingsChanged;
+    }
+
+    private LevelReading GetLevel(string channelName) =>
+        _levels.TryGetValue(channelName, out var level) ? level : new LevelReading();
+
+    private PeakMax GetMax(string channelName) =>
+        _maxes.TryGetValue(channelName, out var m) ? m : PeakMax.Empty;
+
+    private void OnLevelUpdated(string channelName, LevelReading reading)
+    {
+        if (channelName != ChannelName) return;
+        _levels[channelName] = reading;
+
+        // Peak-hold: tracked client-side (not from LevelReading.TruePeakMaxDb) so it survives a
+        // stop/restart of the channel's engine and is only cleared by an explicit click — see
+        // OnStatusUpdated below, which clears the *current* reading on stop but never touches this.
+        var max = GetMax(channelName);
+        _maxes[channelName] = new PeakMax(
+            Math.Max(max.TpL, reading.TruePeakLDb),
+            Math.Max(max.TpR, reading.TruePeakRDb),
+            Math.Max(max.LufsM, reading.LoudnessM),
+            Math.Max(max.LufsS, reading.LoudnessS),
+            Math.Max(max.LufsI, reading.LoudnessI));
+
+        InvokeAsync(StateHasChanged);
+    }
+
+    private void OnStatusUpdated(string channelName, EngineStatus status)
+    {
+        if (channelName != ChannelName) return;
+        if (!status.IsRecording)
+            _levels[channelName] = new LevelReading();
+        InvokeAsync(StateHasChanged);
+    }
+
+    private void ResetMax(string channelName) => _maxes[channelName] = PeakMax.Empty;
+
+    private void OnSettingsChanged() => InvokeAsync(StateHasChanged);
+
+    private string TrackGradient => MeterZoneStyle.BuildTrackGradient(AppSettings.Current.MeterColors, vertical: true);
+
+    // CSS numbers must use '.' as the decimal separator regardless of server locale — a raw
+    // interpolated double here would render "45,7" under ru-RU and silently break the width/height.
+    private static string CoverPercentText(double db) => (100.0 - MeterZoneStyle.Percent(db)).ToString(CultureInfo.InvariantCulture);
+
+    private static string FormatDb(double db) => double.IsNegativeInfinity(db) ? "—" : db.ToString("F1", CultureInfo.InvariantCulture);
+
+    private sealed record PeakMax(double TpL, double TpR, double LufsM, double LufsS, double LufsI)
+    {
+        public static readonly PeakMax Empty = new(
+            double.NegativeInfinity, double.NegativeInfinity,
+            double.NegativeInfinity, double.NegativeInfinity, double.NegativeInfinity);
+    }
+
+    private sealed record VMeterInfo(string Label, double Db, double MaxDb);
+
+    /// <summary>Tick marks for the -Inf..0 LU scale next to the meters, every 6 dB/LU — same
+    /// mapping (<see cref="MeterZoneStyle.Percent"/>) the meters themselves use, so a tick always
+    /// lines up with the exact height where that reading would fill the track to.</summary>
+    private static IEnumerable<(double Percent, string Label)> ScaleTicks()
+    {
+        for (var db = 0.0; db > -60.0; db -= 6.0)
+            yield return (MeterZoneStyle.Percent(db), db.ToString("0", CultureInfo.InvariantCulture));
+        yield return (MeterZoneStyle.Percent(double.NegativeInfinity), "-∞");
+    }
+
+    private static IEnumerable<VMeterInfo> VMeters(LevelReading level, PeakMax max)
+    {
+        yield return new VMeterInfo("TP L", level.TruePeakLDb, max.TpL);
+        yield return new VMeterInfo("TP R", level.TruePeakRDb, max.TpR);
+        yield return new VMeterInfo("LUFS M", level.LoudnessM, max.LufsM);
+        yield return new VMeterInfo("LUFS S", level.LoudnessS, max.LufsS);
+        yield return new VMeterInfo("LUFS I", level.LoudnessI, max.LufsI);
+    }
+
+    private void Close() => OnClose.InvokeAsync();
+
+    public void Dispose()
+    {
+        EngineManager.LevelUpdated -= OnLevelUpdated;
+        EngineManager.StatusUpdated -= OnStatusUpdated;
+        AppSettings.Changed -= OnSettingsChanged;
+    }
+}

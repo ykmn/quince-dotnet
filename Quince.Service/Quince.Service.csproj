@@ -5,15 +5,18 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <UseWindowsForms>true</UseWindowsForms>
     <RootNamespace>Quince.Service</RootNamespace>
     <AssemblyName>Quince.Service</AssemblyName>
     <Version>0.0.1</Version>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <SelfContained>true</SelfContained>
+    <ApplicationIcon>icon.ico</ApplicationIcon>
   </PropertyGroup>
 
   <ItemGroup>
     <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" Version="8.0.1" />
     <PackageReference Include="ManagedBass" Version="3.1.0" />
-    <PackageReference Include="ManagedBass.Mix" Version="3.1.0" />
     <PackageReference Include="YamlDotNet" Version="15.3.0" />
     <PackageReference Include="BCrypt.Net-Next" Version="4.0.3" />
   </ItemGroup>
@@ -21,6 +24,10 @@
   <ItemGroup>
     <Content Include="config\**" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="tools\**" CopyToOutputDirectory="PreserveNewest" />
+    <!-- bass.dll must land next to Quince.Service.exe (not in a subfolder) — that's where the
+         .NET/Windows native-library probing that ManagedBass's P/Invoke relies on looks first. -->
+    <Content Include="native\bass.dll" Link="bass.dll" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\README.md" Link="README.md" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>

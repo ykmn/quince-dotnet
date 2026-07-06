@@ -51,4 +51,34 @@ public class AudioWriterTests
         var fmt = new OutputFormatConfig { FileFormat = "flac" };
         Assert.Throws<ArgumentException>(() => AudioWriter.BuildEncodeArgs(fmt, 44100, 2, "out.flac"));
     }
+
+    [Fact]
+    public void ResolveEffectiveFormat_OriginalMode_SoundcardUsesWav()
+    {
+        var config = new ChannelConfig { Source = { Type = "soundcard" }, OutputFormat = { Mode = "original", FileFormat = "mp3" } };
+        Assert.Equal("wav", AudioWriter.ResolveEffectiveFormat(config).FileFormat);
+    }
+
+    [Fact]
+    public void ResolveEffectiveFormat_OriginalMode_HlsUsesAac()
+    {
+        var config = new ChannelConfig { Source = { Type = "stream", StreamType = "hls" }, OutputFormat = { Mode = "original", FileFormat = "mp3" } };
+        Assert.Equal("aac", AudioWriter.ResolveEffectiveFormat(config).FileFormat);
+    }
+
+    [Theory]
+    [InlineData("icecast")]
+    [InlineData("icecast_mp3")]
+    public void ResolveEffectiveFormat_OriginalMode_IcecastUsesMp3(string streamType)
+    {
+        var config = new ChannelConfig { Source = { Type = "stream", StreamType = streamType }, OutputFormat = { Mode = "original", FileFormat = "aac" } };
+        Assert.Equal("mp3", AudioWriter.ResolveEffectiveFormat(config).FileFormat);
+    }
+
+    [Fact]
+    public void ResolveEffectiveFormat_CustomMode_KeepsConfiguredFileFormat()
+    {
+        var config = new ChannelConfig { Source = { Type = "stream", StreamType = "hls" }, OutputFormat = { Mode = "custom", FileFormat = "wav" } };
+        Assert.Equal("wav", AudioWriter.ResolveEffectiveFormat(config).FileFormat);
+    }
 }

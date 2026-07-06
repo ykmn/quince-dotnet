@@ -118,7 +118,7 @@ public sealed class AudioWriter
         _crashCooldownUntil = null;
         var outPath = MakeOutputPath(now);
         Directory.CreateDirectory(Path.GetDirectoryName(outPath)!);
-        var args = BuildEncodeArgs(_config.OutputFormat, _inputSampleRate, _inputChannels, outPath);
+        var args = BuildEncodeArgs(ResolveEffectiveFormat(_config), _inputSampleRate, _inputChannels, outPath);
 
         try
         {
@@ -212,9 +212,42 @@ public sealed class AudioWriter
     {
         var dateStr = OutputPathPlanner.FormatDate(dt, _config.DateFolderFormat);
         var timeStr = OutputPathPlanner.FormatTime(dt, _config.FileNameFormat);
-        var ext = _config.OutputFormat.FileFormat;
+        var ext = ResolveEffectiveFormat(_config).FileFormat;
         var folder = Path.Combine(_config.SavePath, dateStr);
         return Path.Combine(folder, $"{timeStr}.{ext}");
+    }
+
+    /// <summary>
+    /// "Как во входном потоке" (Mode == "original") previously did nothing but skip the explicit
+    /// sample-rate/channel override — it still saved through whatever <c>FileFormat</c> happened to
+    /// be configured (defaulting to "mp3" for new channels), so an HLS/AAC source silently got
+    /// transcoded to MP3 instead of matching the source. This picks the codec/extension from the
+    /// actual source instead: soundcard capture is raw PCM, so it's saved as WAV; HLS audio is
+    /// virtually always AAC; Icecast (plain or MP3) is saved as MP3. In "custom" mode the
+    /// user-chosen <see cref="OutputFormatConfig.FileFormat"/> is used unchanged.
+    /// </summary>
+    internal static OutputFormatConfig ResolveEffectiveFormat(ChannelConfig config)
+    {
+        var fmt = config.OutputFormat;
+        if (fmt.Mode != "original") return fmt;
+
+        var originalFileFormat = config.Source.Type == "soundcard"
+            ? "wav"
+            : config.Source.StreamType switch
+            {
+                "hls" => "aac",
+                _ => "mp3", // icecast, icecast_mp3
+            };
+
+        return new OutputFormatConfig
+        {
+            Mode = fmt.Mode,
+            FileFormat = originalFileFormat,
+            SampleRate = fmt.SampleRate,
+            BitDepth = fmt.BitDepth,
+            Channels = fmt.Channels,
+            BitrateKbps = fmt.BitrateKbps,
+        };
     }
 
     private void CleanupOldFiles()

@@ -60,6 +60,24 @@ public class YamlConfigLoader
         File.WriteAllText(path, text);
     }
 
+    /// <summary>YAML round-trip so nested objects (Source/OutputFormat/...) aren't shared by reference with the original.</summary>
+    public ChannelConfig Clone(ChannelConfig source)
+    {
+        var text = _serializer.Serialize(source);
+        var clone = _deserializer.Deserialize<ChannelConfig>(text);
+        clone.Filename = source.Filename;
+        return clone;
+    }
+
+    public string Serialize(ChannelConfig config) => _serializer.Serialize(config);
+
+    public void SaveApp(string configDir, AppConfig config)
+    {
+        var path = Path.Combine(configDir, "app.yaml");
+        var text = _serializer.Serialize(config);
+        File.WriteAllText(path, text);
+    }
+
     public AppConfig LoadApp(string configDir)
     {
         var path = Path.Combine(configDir, "app.yaml");

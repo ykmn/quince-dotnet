@@ -1,0 +1,22 @@
+.DS_Store
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+config/
+!src/config/
+*.spec
+log/
+previews/
+recording/
+.superpowers/
+.venv/
+venv/
+
+# .NET build output / publish artifacts
+bin/
+obj/
+release/
+*.user
+.vs/

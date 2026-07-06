@@ -6,21 +6,29 @@ namespace Quince.Service.Services;
 public class FileLoggerProvider : ILoggerProvider
 {
     private readonly string _logDir;
-    private readonly LogLevel _minLevel;
     private readonly LoggerExternalScopeProvider _scopeProvider = new();
     private readonly object _lock = new();
     private StreamWriter? _writer;
     private DateOnly _currentDate;
 
+    public LogLevel MinLevel { get; private set; }
+
     public FileLoggerProvider(string logDir, AppConfig appConfig)
     {
         _logDir = logDir;
-        _minLevel = ParseLevel(appConfig.LogLevel);
+        MinLevel = ParseLevel(appConfig.LogLevel);
         Directory.CreateDirectory(_logDir);
         CleanupOldLogs(appConfig.LogRetentionDays);
     }
 
-    public ILogger CreateLogger(string categoryName) => new FileLogger(this, _scopeProvider, _minLevel);
+    /// <summary>Applied live from the Settings dialog — existing FileLogger instances read MinLevel dynamically.</summary>
+    public void UpdateSettings(AppConfig appConfig)
+    {
+        MinLevel = ParseLevel(appConfig.LogLevel);
+        CleanupOldLogs(appConfig.LogRetentionDays);
+    }
+
+    public ILogger CreateLogger(string categoryName) => new FileLogger(this, _scopeProvider);
 
     public void Dispose()
     {

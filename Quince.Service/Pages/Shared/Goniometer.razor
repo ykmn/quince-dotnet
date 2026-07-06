@@ -1,0 +1,62 @@
+@using Quince.Service.Audio
+@using Quince.Service.Services
+@inject AudioEngineManager EngineManager
+@inject IJSRuntime JsRuntime
+@implements IAsyncDisposable
+
+<div style="width:100%;height:100%;">
+    <canvas @ref="_canvasRef" width="240" height="240" style="width:100%;height:100%;display:block;"></canvas>
+</div>
+
+@code {
+    [Parameter, EditorRequired]
+    public string ChannelName { get; set; } = null!;
+
+    private ElementReference _canvasRef;
+    private bool _disposed;
+    private bool _jsInitialized;
+
+    protected override void OnInitialized()
+    {
+        EngineManager.GoniometerUpdated += OnGoniometerUpdated;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender && !_disposed)
+        {
+            await JsRuntime.InvokeVoidAsync("quinceGoniometer.init", _canvasRef);
+            _jsInitialized = true;
+        }
+    }
+
+    private void OnGoniometerUpdated(string channelName, GoniometerFrame frame)
+    {
+        if (_disposed || !_jsInitialized || channelName != ChannelName) return;
+        _ = DrawAsync(frame);
+    }
+
+    private async Task DrawAsync(GoniometerFrame frame)
+    {
+        try
+        {
+            if (_disposed) return;
+            await JsRuntime.InvokeVoidAsync("quinceGoniometer.draw", _canvasRef, frame.Left, frame.Right);
+        }
+        catch (JSDisconnectedException)
+        {
+            // Circuit torn down mid-flight — nothing to draw to anymore.
+        }
+        catch (ObjectDisposedException)
+        {
+            // Component/renderer disposed mid-flight.
+        }
+    }
+
+    public ValueTask DisposeAsync()
+    {
+        _disposed = true;
+        EngineManager.GoniometerUpdated -= OnGoniometerUpdated;
+        return ValueTask.CompletedTask;
+    }
+}

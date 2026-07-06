@@ -1,5 +1,4 @@
 name: Monte Carlo
-filename: Monte Carlo.yaml
 source:
   type: stream
   device_name: ''
@@ -10,8 +9,7 @@ source:
   hls_bitrate_index: 0
   allow_http: false
   allow_invalid_ssl: false
-  metadata_url: 
-    https://hls-01-montecarlo.hostingradio.ru/montecarlo/metadata.json?format=fmgid&subformat=small
+  metadata_url: https://hls-01-montecarlo.hostingradio.ru/montecarlo/metadata.json?format=fmgid&subformat=small
   reconnect_delay_seconds: 3
 input_format:
   sample_rate: 0
@@ -26,7 +24,7 @@ output_format:
   bit_depth: 16
   channels: 2
   bitrate_kbps: 96
-save_path: M:\Users\twelve\Projects\quince-dotnet\recording\MonteCarlo
+save_path: D:\recording\MonteCarlo
 date_folder_format: YYYY-MM-DD
 file_name_format: hh-mm-ss
 file_duration_seconds: 3600
@@ -35,7 +33,7 @@ retention_days: 30
 auto_start: false
 silence_detector:
   enabled: false
-  threshold_dbfs: -60.0
-  trigger_seconds: 3.0
-  resume_seconds: 1.0
+  threshold_dbfs: -60
+  trigger_seconds: 3
+  resume_seconds: 1
 metadata_path: ''

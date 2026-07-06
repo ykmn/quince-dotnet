@@ -9,12 +9,14 @@ public class AudioEngineManager : IHostedService
     private readonly ILoggerFactory _loggerFactory;
     private readonly ILogger<AudioEngineManager> _logger;
     private readonly string _ffmpegPath;
+    private readonly string _ffprobePath;
 
     private readonly Dictionary<string, ChannelEngine> _engines = new();
     private readonly object _lock = new();
 
     public event Action<string, LevelReading>? LevelUpdated;
     public event Action<string, EngineStatus>? StatusUpdated;
+    public event Action<string, GoniometerFrame>? GoniometerUpdated;
 
     public AudioEngineManager(ChannelManager channelManager, ILoggerFactory loggerFactory,
         ILogger<AudioEngineManager> logger, IConfiguration configuration)
@@ -23,7 +25,14 @@ public class AudioEngineManager : IHostedService
         _loggerFactory = loggerFactory;
         _logger = logger;
         _ffmpegPath = PathResolver.Resolve(configuration["FfmpegPath"], "tools/ffmpeg.exe");
+        _ffprobePath = PathResolver.Resolve(configuration["FfprobePath"], "tools/ffprobe.exe");
+
+        _channelManager.ChannelAdded += OnChannelAdded;
+        _channelManager.ChannelUpdated += OnChannelUpdated;
+        _channelManager.ChannelRemoved += OnChannelRemoved;
     }
+
+    private static bool IsEligible(Configuration.ChannelConfig config) => config.Source.Type is "stream" or "soundcard";
 
     public Task StartAsync(CancellationToken cancellationToken)
     {
@@ -32,7 +41,7 @@ public class AudioEngineManager : IHostedService
         // _channelManager.Channels is already populated here.
         foreach (var config in _channelManager.Channels)
         {
-            if (config.Source.Type == "stream" && config.AutoStart)
+            if (IsEligible(config) && config.AutoStart)
                 Start(config.Name);
         }
         return Task.CompletedTask;
@@ -56,6 +65,39 @@ public class AudioEngineManager : IHostedService
         }
     }
 
+    public bool IsRunning(string channelName)
+    {
+        lock (_lock) { return _engines.ContainsKey(channelName); }
+    }
+
+    /// <returns>(started, eligible) — eligible counts channels whose source type supports recording, whether or not they were already running.</returns>
+    public (int Started, int Eligible) StartAll()
+    {
+        var started = 0;
+        var eligible = 0;
+        foreach (var config in _channelManager.Channels)
+        {
+            if (!IsEligible(config)) continue;
+            eligible++;
+            if (IsRunning(config.Name)) continue;
+            TryStart(config.Name);
+            if (IsRunning(config.Name)) started++;
+        }
+        return (started, eligible);
+    }
+
+    public int StopAll()
+    {
+        var stopped = 0;
+        foreach (var config in _channelManager.Channels)
+        {
+            if (!IsRunning(config.Name)) continue;
+            Stop(config.Name);
+            stopped++;
+        }
+        return stopped;
+    }
+
     public void Start(string channelName)
     {
         lock (_lock)
@@ -63,11 +105,12 @@ public class AudioEngineManager : IHostedService
             if (_engines.ContainsKey(channelName)) return;
 
             var config = _channelManager.Channels.FirstOrDefault(c => c.Name == channelName);
-            if (config == null || config.Source.Type != "stream") return;
+            if (config == null || !IsEligible(config)) return;
 
-            var engine = new ChannelEngine(config, _ffmpegPath, _loggerFactory,
+            var engine = new ChannelEngine(config, _ffmpegPath, _ffprobePath, _loggerFactory,
                 reading => PushLevel(channelName, reading),
-                status => PushStatus(channelName, status));
+                status => PushStatus(channelName, status),
+                frame => PushGoniometer(channelName, frame));
 
             _engines[channelName] = engine;
             try
@@ -83,6 +126,12 @@ public class AudioEngineManager : IHostedService
         }
     }
 
+    private void TryStart(string channelName)
+    {
+        try { Start(channelName); }
+        catch (Exception) { /* already logged in Start() */ }
+    }
+
     public void Stop(string channelName)
     {
         ChannelEngine? engine;
@@ -92,6 +141,33 @@ public class AudioEngineManager : IHostedService
             _engines.Remove(channelName);
         }
         engine.Stop();
+    }
+
+    private void OnChannelAdded(Configuration.ChannelConfig config)
+    {
+        if (IsEligible(config) && config.AutoStart)
+            TryStart(config.Name);
+    }
+
+    private void OnChannelUpdated(Configuration.ChannelConfig oldConfig, Configuration.ChannelConfig newConfig)
+    {
+        lock (_lock)
+        {
+            if (!_engines.TryGetValue(oldConfig.Name, out var engine)) return;
+            _engines.Remove(oldConfig.Name);
+            if (!IsEligible(newConfig))
+            {
+                engine.Stop();
+                return;
+            }
+            engine.UpdateConfig(newConfig);
+            _engines[newConfig.Name] = engine;
+        }
+    }
+
+    private void OnChannelRemoved(Configuration.ChannelConfig config)
+    {
+        Stop(config.Name);
     }
 
     private void PushLevel(string channelName, LevelReading reading)
@@ -115,6 +191,18 @@ public class AudioEngineManager : IHostedService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Ошибка в обработчике StatusUpdated для канала '{Channel}'", channelName);
+        }
+    }
+
+    private void PushGoniometer(string channelName, GoniometerFrame frame)
+    {
+        try
+        {
+            GoniometerUpdated?.Invoke(channelName, frame);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Ошибка в обработчике GoniometerUpdated для канала '{Channel}'", channelName);
         }
     }
 }

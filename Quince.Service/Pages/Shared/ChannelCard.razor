@@ -1,15 +1,23 @@
+@using System.Globalization
 @using Quince.Service.Configuration
 @using Quince.Service.Services
 @using Quince.Service.Audio
 @inject AudioEngineManager EngineManager
+@inject ChannelManager ChannelManager
+@inject ChannelUiState UiState
+@inject AppSettingsService AppSettings
 @implements IAsyncDisposable
 
 <div class="channel-card">
     <div class="channel-row1">
-        <div class="status-dot @StatusDotClass"></div>
+        <div class="status-dot @StatusDotClass" title="@StatusDotTitle"></div>
         @if (Config.Source.Type == "stream")
         {
-            <div class="status-dot @SilenceDotClass"></div>
+            <div class="status-dot @MetadataDotClass" title="@MetadataDotTitle"></div>
+        }
+        @if (IsEligibleType)
+        {
+            <div class="status-dot @SilenceDotClass" title="@SilenceDotTitle"></div>
         }
         <div class="channel-name" title="@Config.Name">@Config.Name</div>
         @if (_status.ReconnectAttempt > 0)
@@ -18,25 +26,25 @@
         }
         <div class="spacer"></div>
         <button class="btn @(_status.IsRecording ? "btn-stop" : "btn-start")"
-                title="@(Config.Source.Type == "stream" ? (_status.IsRecording ? "Остановить запись" : "Начать запись") : "Звуковая карта пока не реализована")"
-                disabled="@(Config.Source.Type != "stream")"
+                title="@(_status.IsRecording ? "Остановить запись" : "Начать запись")"
+                disabled="@(!IsEligibleType)"
                 @onclick="ToggleRecording">
             @(_status.IsRecording ? "Стоп" : "Старт")
         </button>
-        <button class="btn btn-small" title="Редактировать настройки канала">✎</button>
-        <button class="btn btn-small" title="Клонировать канал">⧉</button>
-        <button class="btn btn-meters" title="Открыть окно индикаторов уровня">▦ Индикаторы</button>
-        <button class="btn btn-delete" title="Удалить канал">✕</button>
+        <button class="btn btn-small" title="Редактировать настройки канала" @onclick="Edit">✎</button>
+        <button class="btn btn-small" title="Клонировать канал" @onclick="Clone">⧉</button>
+        <button class="btn btn-meters" title="Открыть окно индикаторов уровня" @onclick="OpenIndicators">📊 Индикаторы</button>
+        <button class="btn btn-delete" title="Удалить канал" @onclick="Delete">✕</button>
     </div>
-    <div class="channel-row2">Вход: @ChannelDisplayFormatter.FormatSource(Config)</div>
-    <div class="channel-row3">Файл: @ChannelDisplayFormatter.FormatOutput(Config)</div>
-    <div class="level-widget">
+    <div class="level-widget" title="Текущий уровень True Peak (мгновенный)">
         <div class="level-row">
             <span class="level-label">TP</span>
-            <div class="level-track"><div class="level-fill" style="width: @(LevelFillPercent)%"></div></div>
+            <div class="level-track" style="background: @(TrackGradient);"><div class="level-cover" style="width: @(CoverPercentText)%;"></div></div>
             <span class="level-value">@LevelValueText</span>
         </div>
     </div>
+    <div class="channel-row2" title="Источник звука этого канала">Вход: @ChannelDisplayFormatter.FormatSource(Config)</div>
+    <div class="channel-row3" title="Формат и место сохранения аудиофайлов этого канала">Файл: @ChannelDisplayFormatter.FormatOutput(Config)</div>
 </div>
 
 @code {
@@ -47,6 +55,8 @@
     private LevelReading _level = new();
     private bool _disposed;
 
+    private const double SilenceDotThresholdDb = -50.0;
+
     private string StatusDotClass => _status switch
     {
         { IsRecording: false } => "",
@@ -54,21 +64,55 @@
         _ => "dot-green",
     };
 
-    private string SilenceDotClass => _status.IsSilent ? "dot-purple" : "";
+    private string StatusDotTitle => _status switch
+    {
+        { IsRecording: false } => "Запись не идёт",
+        { ReconnectAttempt: > 0 } => $"Переподключение (попытка {_status.ReconnectAttempt})",
+        _ => "Запись идёт",
+    };
 
-    private double LevelFillPercent => double.IsNegativeInfinity(_level.TruePeakDb)
-        ? 0
-        : Math.Clamp((_level.TruePeakDb + 60.0) / 60.0 * 100.0, 0, 100);
+    private bool HasMetadata => !string.IsNullOrEmpty(Config.Source.MetadataUrl);
+    private string MetadataDotClass => HasMetadata ? "dot-cyan" : "";
+    private string MetadataDotTitle => Config.Source.MetadataUrl switch
+    {
+        "" => "Метаданные не настроены",
+        "icy" => "Метаданные: ICY (Icecast)",
+        var url => $"Метаданные: HLS JSON ({url})",
+    };
 
-    private string LevelValueText => double.IsNegativeInfinity(_level.TruePeakDb) ? "—" : $"{_level.TruePeakDb:F1} dB";
+    // A coarse, always-on "is there any signal right now" gauge from the live meter reading —
+    // deliberately independent of the per-channel configurable SilenceDetector (which is off by
+    // default and only flips after its own threshold/trigger-seconds hysteresis), so it works even
+    // for channels that never enabled that detector.
+    private string SilenceDotClass => _level.TruePeakDb > SilenceDotThresholdDb ? "dot-green" : "dot-red";
+    private string SilenceDotTitle => _level.TruePeakDb > SilenceDotThresholdDb ? "Звук есть" : "Тишина";
+
+    private bool IsEligibleType => Config.Source.Type is "stream" or "soundcard";
+
+    private string LevelValueText => double.IsNegativeInfinity(_level.TruePeakDb)
+        ? "—"
+        : _level.TruePeakDb.ToString("F1", CultureInfo.InvariantCulture) + " dB";
+
+    private string TrackGradient => MeterZoneStyle.BuildTrackGradient(AppSettings.Current.MeterColors, vertical: false);
+
+    // CSS numbers must use '.' as the decimal separator regardless of server locale — a raw
+    // interpolated double here would render "45,7" under ru-RU and silently break the width.
+    private string CoverPercentText => (100.0 - MeterZoneStyle.Percent(_level.TruePeakDb)).ToString(CultureInfo.InvariantCulture);
 
     protected override void OnInitialized()
     {
-        if (Config.Source.Type != "stream") return;
+        AppSettings.Changed += OnSettingsChanged;
+        if (!IsEligibleType) return;
 
         _status = EngineManager.GetStatus(Config.Name) ?? new EngineStatus();
         EngineManager.LevelUpdated += OnLevelUpdated;
         EngineManager.StatusUpdated += OnStatusUpdated;
+    }
+
+    private void OnSettingsChanged()
+    {
+        if (_disposed) return;
+        InvokeAsync(StateHasChanged);
     }
 
     private void OnLevelUpdated(string channelName, LevelReading reading)
@@ -87,17 +131,26 @@
 
     private void ToggleRecording()
     {
-        if (Config.Source.Type != "stream") return;
+        if (!IsEligibleType) return;
         if (_status.IsRecording)
             EngineManager.Stop(Config.Name);
         else
             EngineManager.Start(Config.Name);
     }
 
+    private void Edit() => UiState.OpenEditChannel(Config);
+
+    private void Clone() => ChannelManager.Clone(Config.Filename);
+
+    private void Delete() => UiState.OpenDeleteChannel(Config);
+
+    private void OpenIndicators() => UiState.OpenIndicators(Config.Name);
+
     public ValueTask DisposeAsync()
     {
         _disposed = true;
-        if (Config.Source.Type == "stream")
+        AppSettings.Changed -= OnSettingsChanged;
+        if (IsEligibleType)
         {
             EngineManager.LevelUpdated -= OnLevelUpdated;
             EngineManager.StatusUpdated -= OnStatusUpdated;
