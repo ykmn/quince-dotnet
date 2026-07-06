@@ -74,9 +74,9 @@
                         <option value="">— выбрать из списка —</option>
                         @foreach (var d in _devices)
                         {
-                            <option value="@d.Driver">@d.Name@(d.IsDefault ? " (по умолчанию)" : "")@(d.IsEnabled ? "" : " (отключено)")</option>
+                            <option value="@d.Id">@d.Name@(d.IsDefault ? " (по умолчанию)" : "")@(d.IsEnabled ? "" : " (отключено)")</option>
                         }
-                        @if (!string.IsNullOrEmpty(_draft.Source.DeviceUid) && !_devices.Any(d => d.Driver == _draft.Source.DeviceUid))
+                        @if (!string.IsNullOrEmpty(_draft.Source.DeviceUid) && !_devices.Any(d => d.Id == _draft.Source.DeviceUid))
                         {
                             <option value="@_draft.Source.DeviceUid">Текущее (не обнаружено сейчас): @(string.IsNullOrEmpty(_draft.Source.DeviceName) ? _draft.Source.DeviceUid : _draft.Source.DeviceName)</option>
                         }
@@ -277,10 +277,10 @@
             _devices = SoundcardCapture.EnumerateDevices();
             _deviceListError = null;
         }
-        catch (DllNotFoundException)
+        catch (System.Runtime.InteropServices.COMException ex)
         {
             _devices = new();
-            _deviceListError = "Библиотека BASS (bass.dll) не найдена или не смогла загрузиться — обычно она лежит рядом с Quince.Service.exe; проверьте, что файл на месте и не заблокирован антивирусом/политикой Windows (см. README). Каналы со звуковой картой недоступны, пока это не исправлено.";
+            _deviceListError = $"Не удалось опросить аудиоподсистему Windows (проверьте, что служба \"Windows Audio\" запущена): {ex.Message}";
         }
         catch (Exception ex)
         {
@@ -293,7 +293,7 @@
     {
         var uid = e.Value?.ToString() ?? "";
         _draft.Source.DeviceUid = uid;
-        var match = _devices.FirstOrDefault(d => d.Driver == uid);
+        var match = _devices.FirstOrDefault(d => d.Id == uid);
         if (!string.IsNullOrEmpty(uid) && !string.IsNullOrEmpty(match.Name))
             _draft.Source.DeviceName = match.Name;
     }
