@@ -30,6 +30,8 @@ public sealed class StreamCapture : IAudioCapture
     private Process? _process;
     private CancellationTokenSource? _cts;
     private Task? _task;
+    private readonly System.Text.StringBuilder _stderrBuffer = new();
+    private readonly object _stderrLock = new();
 
     public StreamCapture(string ffmpegPath, string url, string streamType, bool allowInvalidSsl,
         int hlsBitrateIndex, int reconnectDelaySeconds, ILogger log)
@@ -141,6 +143,7 @@ public sealed class StreamCapture : IAudioCapture
 
                 process = Process.Start(psi) ?? throw new InvalidOperationException("Process.Start returned null");
                 _process = process;
+                lock (_stderrLock) { _stderrBuffer.Clear(); }
                 _status = StreamStatus.Streaming;
                 if (_reconnectAttempt > 0)
                     _log.LogInformation("Переподключение к {Url} выполнено", _url);
@@ -210,7 +213,14 @@ public sealed class StreamCapture : IAudioCapture
         }
 
         if (process.HasExited && process.ExitCode != 0)
-            _log.LogWarning("FFmpeg завершился с кодом {Code}", process.ExitCode);
+        {
+            string stderr;
+            lock (_stderrLock) { stderr = _stderrBuffer.ToString(); }
+            if (string.IsNullOrWhiteSpace(stderr))
+                _log.LogWarning("FFmpeg завершился с кодом {Code}", process.ExitCode);
+            else
+                _log.LogWarning("FFmpeg завершился с кодом {Code}. Stderr: {Stderr}", process.ExitCode, stderr.Trim());
+        }
     }
 
     private async Task DrainStderrAsync(Process process, CancellationToken ct)
@@ -221,8 +231,15 @@ public sealed class StreamCapture : IAudioCapture
             string? line;
             while ((line = await reader.ReadLineAsync(ct)) != null)
             {
-                if (!string.IsNullOrWhiteSpace(line))
-                    _log.LogDebug("ffmpeg stderr: {Line}", line);
+                if (string.IsNullOrWhiteSpace(line)) continue;
+                _log.LogDebug("ffmpeg stderr: {Line}", line);
+                lock (_stderrLock)
+                {
+                    _stderrBuffer.AppendLine(line);
+                    // Bound growth in case of a very chatty/long-running process before it crashes.
+                    if (_stderrBuffer.Length > 16_384)
+                        _stderrBuffer.Remove(0, _stderrBuffer.Length - 16_384);
+                }
             }
         }
         catch (OperationCanceledException) { }
