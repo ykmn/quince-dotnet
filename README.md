@@ -1,6 +1,6 @@
 # Айва (Quince.Service)
 
-Многоканальный аудиологгер — веб-приложение на ASP.NET Core (Blazor Server), устанавливаемое как служба Windows. Версия: см. `docs/CHANGELOG.md` (текущая — `0.00.038`). Лицензия: GNU GPL v3 (`LICENSE.md`) — бесплатное opensource-приложение.
+Многоканальный аудиологгер — веб-приложение на ASP.NET Core (Blazor Server), устанавливаемое как служба Windows. Версия: см. `docs/CHANGELOG.md` (текущая — `0.00.039`). Лицензия: GNU GPL v3 (`LICENSE.md`) — бесплатное opensource-приложение.
 
 ## Требования
 

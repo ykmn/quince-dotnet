@@ -114,7 +114,7 @@ public sealed class MetadataWriter
             writer.WriteLine(CsvRow("EventTime", "ElemName", "ElemArtist", "ElemClass", "ElemLength"));
         }
 
-        writer.WriteLine(CsvRow(dt.ToString("yyyy-MM-dd HH:mm"), name, artist, elemClass, lengthStr));
+        writer.WriteLine(CsvRow(dt.ToString("yyyy-MM-dd HH:mm:ss"), name, artist, elemClass, lengthStr));
     }
 
     private static string CsvRow(params string[] fields) =>
