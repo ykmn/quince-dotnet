@@ -27,6 +27,19 @@ public sealed class MetadataDetectionService
 
         if (source.StreamType == "hls")
         {
+            // If a JSON endpoint was already confirmed by a previous detection, try it directly
+            // first — the endpoint can live under a different path than the current playlist URL
+            // (some stations serve playlists and metadata under different stream ids), so
+            // re-deriving candidates from source.Url alone would wrongly report "not found" for a
+            // station whose saved endpoint is still working fine.
+            var known = source.MetadataUrl;
+            if (!string.IsNullOrEmpty(known) && known != "icy")
+            {
+                using var cts = new CancellationTokenSource(Timeout);
+                if (await HlsMetadataReader.ValidateUrlAsync(known, source.AllowInvalidSsl, cts.Token))
+                    return new MetadataDetectionResult(true, known, null);
+            }
+
             var url = await HlsMetadataReader.DiscoverMetadataUrlAsync(source.Url, source.AllowInvalidSsl, Timeout);
             return new MetadataDetectionResult(url != null, url ?? "", null);
         }

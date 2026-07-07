@@ -19,8 +19,11 @@ public sealed class StreamCapture : IAudioCapture
     private readonly string _streamType;
     private readonly bool _allowInvalidSsl;
     private readonly int _hlsBitrateIndex;
-    private readonly int _reconnectDelaySeconds;
+    private readonly Func<int> _getReconnectDelaySeconds;
+    private readonly Func<int> _getMaxReconnectAttempts;
+    private readonly Action? _onReconnectExhausted;
     private readonly ILogger _log;
+    private readonly string _channelName;
 
     private readonly object _lock = new();
     private readonly Dictionary<string, ChannelWriter<AudioChunk>> _consumers = new();
@@ -33,16 +36,28 @@ public sealed class StreamCapture : IAudioCapture
     private readonly System.Text.StringBuilder _stderrBuffer = new();
     private readonly object _stderrLock = new();
 
+    /// <param name="getReconnectDelaySeconds">Read live at each retry (not cached at construction)
+    /// so changing it in app settings applies immediately to already-running channels, same as
+    /// <see cref="MetadataWriter"/>'s ad-keyword getter.</param>
+    /// <param name="getMaxReconnectAttempts">0 = unlimited retries.</param>
+    /// <param name="onReconnectExhausted">Fired once, off this instance's own loop thread (via a
+    /// detached <see cref="Task.Run(Action)"/>), when the attempt budget runs out — lets the
+    /// callback freely call back into <see cref="Stop"/> without deadlocking on this loop's own
+    /// task.</param>
     public StreamCapture(string ffmpegPath, string url, string streamType, bool allowInvalidSsl,
-        int hlsBitrateIndex, int reconnectDelaySeconds, ILogger log)
+        int hlsBitrateIndex, Func<int> getReconnectDelaySeconds, Func<int> getMaxReconnectAttempts,
+        ILogger log, Action? onReconnectExhausted = null, string channelName = "")
     {
         _ffmpegPath = ffmpegPath;
         _url = url;
         _streamType = streamType;
         _allowInvalidSsl = allowInvalidSsl;
         _hlsBitrateIndex = hlsBitrateIndex;
-        _reconnectDelaySeconds = Math.Max(1, reconnectDelaySeconds);
+        _getReconnectDelaySeconds = getReconnectDelaySeconds;
+        _getMaxReconnectAttempts = getMaxReconnectAttempts;
+        _onReconnectExhausted = onReconnectExhausted;
         _log = log;
+        _channelName = channelName;
     }
 
     // Explicit interface implementation: the const fields above keep working for the existing
@@ -129,7 +144,7 @@ public sealed class StreamCapture : IAudioCapture
         while (!ct.IsCancellationRequested)
         {
             _status = StreamStatus.Connecting;
-            _log.LogInformation("Подключение к {Url} (попытка {Attempt})", _url, _reconnectAttempt);
+            _log.LogInformation("[{Channel}] Подключение к {Url} (попытка {Attempt})", _channelName, _url, _reconnectAttempt);
 
             var ua = UserAgents.RandomDesktop();
             var args = BuildFfmpegArgs(_url, _streamType, _allowInvalidSsl, _hlsBitrateIndex, ua);
@@ -151,7 +166,7 @@ public sealed class StreamCapture : IAudioCapture
                 lock (_stderrLock) { _stderrBuffer.Clear(); }
                 _status = StreamStatus.Streaming;
                 if (_reconnectAttempt > 0)
-                    _log.LogInformation("Переподключение к {Url} выполнено", _url);
+                    _log.LogInformation("[{Channel}] Переподключение к {Url} выполнено", _channelName, _url);
                 _reconnectAttempt = 0;
 
                 var stderrDrainTask = DrainStderrAsync(process, ct);
@@ -159,7 +174,7 @@ public sealed class StreamCapture : IAudioCapture
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
-                _log.LogError(ex, "Ошибка ffmpeg");
+                _log.LogError(ex, "[{Channel}] Ошибка ffmpeg", _channelName);
             }
             finally
             {
@@ -174,9 +189,19 @@ public sealed class StreamCapture : IAudioCapture
             if (ct.IsCancellationRequested) break;
 
             _reconnectAttempt++;
+            var maxAttempts = _getMaxReconnectAttempts();
+            if (maxAttempts > 0 && _reconnectAttempt > maxAttempts)
+            {
+                _status = StreamStatus.Error;
+                _log.LogError("[{Channel}] Превышен предел попыток переподключения ({Max}) — канал останавливается", _channelName, maxAttempts);
+                if (_onReconnectExhausted != null) _ = Task.Run(_onReconnectExhausted);
+                return;
+            }
+
             _status = StreamStatus.Reconnecting;
-            _log.LogWarning("Поток отключён. Попытка переподключения {Attempt} через {Delay}с", _reconnectAttempt, _reconnectDelaySeconds);
-            try { await Task.Delay(TimeSpan.FromSeconds(_reconnectDelaySeconds), ct); }
+            var delaySeconds = Math.Max(1, _getReconnectDelaySeconds());
+            _log.LogWarning("[{Channel}] Поток отключён. Попытка переподключения {Attempt} через {Delay}с", _channelName, _reconnectAttempt, delaySeconds);
+            try { await Task.Delay(TimeSpan.FromSeconds(delaySeconds), ct); }
             catch (OperationCanceledException) { break; }
         }
 
@@ -213,7 +238,7 @@ public sealed class StreamCapture : IAudioCapture
             foreach (var (consumerId, writer) in consumers)
             {
                 if (!writer.TryWrite(chunk))
-                    _log.LogDebug("Очередь подписчика '{Consumer}' переполнена — кадр отброшен ({Frames} фреймов)", consumerId, nFrames);
+                    _log.LogDebug("[{Channel}] Очередь подписчика '{Consumer}' переполнена — кадр отброшен ({Frames} фреймов)", _channelName, consumerId, nFrames);
             }
         }
 
@@ -222,9 +247,9 @@ public sealed class StreamCapture : IAudioCapture
             string stderr;
             lock (_stderrLock) { stderr = _stderrBuffer.ToString(); }
             if (string.IsNullOrWhiteSpace(stderr))
-                _log.LogWarning("FFmpeg завершился с кодом {Code}", process.ExitCode);
+                _log.LogWarning("[{Channel}] FFmpeg завершился с кодом {Code}", _channelName, process.ExitCode);
             else
-                _log.LogWarning("FFmpeg завершился с кодом {Code}. Stderr: {Stderr}", process.ExitCode, stderr.Trim());
+                _log.LogWarning("[{Channel}] FFmpeg завершился с кодом {Code}. Stderr: {Stderr}", _channelName, process.ExitCode, stderr.Trim());
         }
     }
 
@@ -237,7 +262,7 @@ public sealed class StreamCapture : IAudioCapture
             while ((line = await reader.ReadLineAsync(ct)) != null)
             {
                 if (string.IsNullOrWhiteSpace(line)) continue;
-                _log.LogDebug("ffmpeg stderr: {Line}", line);
+                _log.LogDebug("[{Channel}] ffmpeg stderr: {Line}", _channelName, line);
                 lock (_stderrLock)
                 {
                     _stderrBuffer.AppendLine(line);
@@ -250,7 +275,7 @@ public sealed class StreamCapture : IAudioCapture
         catch (OperationCanceledException) { }
         catch (Exception ex)
         {
-            _log.LogDebug(ex, "Ошибка чтения stderr ffmpeg");
+            _log.LogDebug(ex, "[{Channel}] Ошибка чтения stderr ffmpeg", _channelName);
         }
     }
 }

@@ -24,7 +24,7 @@ output_format:
   bit_depth: 16
   channels: 2
   bitrate_kbps: 96
-save_path: D;\recording\Retro
+save_path: D:\recording\Retro
 date_folder_format: YYYY-MM-DD
 file_name_format: hh-mm-ss
 file_duration_minutes: 10

@@ -5,20 +5,21 @@
 @inject ChannelManager ChannelManager
 @inject AudioEngineManager EngineManager
 @inject AppSettingsService AppSettings
+@inject LocalizationService Loc
 @implements IDisposable
 
 <div class="indicators-panel">
     <div class="indicators-panel-header">
         <div class="indicators-panel-title">
             @ChannelName
-            <span class="indicator-state">(@(SingleChannel is null ? "не найден" : (EngineManager.IsRunning(ChannelName) ? "запись" : "остановлен")))</span>
+            <span class="indicator-state">(@(SingleChannel is null ? Loc["indicators.notFound"] : (EngineManager.IsRunning(ChannelName) ? Loc["indicators.recording"] : Loc["indicators.stopped"])))</span>
         </div>
         <button class="btn btn-small" @onclick="Close">✕</button>
     </div>
 
     @if (SingleChannel is null)
     {
-        <p>Канал не найден (возможно, был удалён).</p>
+        <p>@Loc["indicators.channelNotFound"]</p>
     }
     else
     {
@@ -50,7 +51,7 @@
                     <div class="vmeter">
                         <div class="vmeter-label">@m.Label</div>
                         <div class="vmeter-value">@(FormatDb(m.Db))</div>
-                        <button type="button" class="meter-max" @onclick="() => ResetMax(ChannelName)" title="Пиковый максимум с момента запуска/последнего сброса — клик сбрасывает все максимумы канала">@(FormatDb(m.MaxDb))</button>
+                        <button type="button" class="meter-max" @onclick="() => ResetMax(ChannelName)" title="@Loc["indicators.maxTitle"]">@(FormatDb(m.MaxDb))</button>
                         <div class="vmeter-track" style="background: @(TrackGradient);"><div class="vmeter-cover" style="height:@(CoverPercentText(m.Db))%;"></div></div>
                     </div>
                 }
@@ -60,7 +61,7 @@
                 <div class="vmeter">
                     <div class="vmeter-label">@m.Label</div>
                     <div class="vmeter-value">@(FormatDb(m.Db))</div>
-                    <button type="button" class="meter-max" @onclick="() => ResetMax(ChannelName)" title="Пиковый максимум с момента запуска/последнего сброса — клик сбрасывает все максимумы канала">@(FormatDb(m.MaxDb))</button>
+                    <button type="button" class="meter-max" @onclick="() => ResetMax(ChannelName)" title="@Loc["indicators.maxTitle"]">@(FormatDb(m.MaxDb))</button>
                     <div class="vmeter-track" style="background: @(TrackGradient);"><div class="vmeter-cover" style="height:@(CoverPercentText(m.Db))%;"></div></div>
                 </div>
             }
@@ -85,6 +86,7 @@
         EngineManager.LevelUpdated += OnLevelUpdated;
         EngineManager.StatusUpdated += OnStatusUpdated;
         AppSettings.Changed += OnSettingsChanged;
+        Loc.Changed += OnSettingsChanged;
     }
 
     private LevelReading GetLevel(string channelName) =>
@@ -171,5 +173,6 @@
         EngineManager.LevelUpdated -= OnLevelUpdated;
         EngineManager.StatusUpdated -= OnStatusUpdated;
         AppSettings.Changed -= OnSettingsChanged;
+        Loc.Changed -= OnSettingsChanged;
     }
 }

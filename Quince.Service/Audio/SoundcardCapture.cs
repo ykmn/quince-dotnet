@@ -23,8 +23,11 @@ public sealed class SoundcardCapture : IAudioCapture
     public int Channels => RecordChannels;
 
     private readonly SourceConfig _source;
-    private readonly int _reconnectDelaySeconds;
+    private readonly Func<int> _getReconnectDelaySeconds;
+    private readonly Func<int> _getMaxReconnectAttempts;
+    private readonly Action? _onReconnectExhausted;
     private readonly ILogger _log;
+    private readonly string _channelName;
 
     private readonly object _lock = new();
     private readonly Dictionary<string, ChannelWriter<AudioChunk>> _consumers = new();
@@ -36,11 +39,15 @@ public sealed class SoundcardCapture : IAudioCapture
     private CancellationTokenSource? _cts;
     private Task? _task;
 
-    public SoundcardCapture(SourceConfig source, int reconnectDelaySeconds, ILogger log)
+    public SoundcardCapture(SourceConfig source, Func<int> getReconnectDelaySeconds, Func<int> getMaxReconnectAttempts,
+        ILogger log, Action? onReconnectExhausted = null, string channelName = "")
     {
         _source = source;
-        _reconnectDelaySeconds = Math.Max(1, reconnectDelaySeconds);
+        _getReconnectDelaySeconds = getReconnectDelaySeconds;
+        _getMaxReconnectAttempts = getMaxReconnectAttempts;
+        _onReconnectExhausted = onReconnectExhausted;
         _log = log;
+        _channelName = channelName;
     }
 
     public StreamStatus Status => _status;
@@ -177,7 +184,7 @@ public sealed class SoundcardCapture : IAudioCapture
         while (!ct.IsCancellationRequested)
         {
             _status = StreamStatus.Connecting;
-            _log.LogInformation("Подключение к аудиоустройству (попытка {Attempt})", _reconnectAttempt);
+            _log.LogInformation("[{Channel}] Подключение к аудиоустройству (попытка {Attempt})", _channelName, _reconnectAttempt);
 
             // Signalled from the RecordingStopped event — replaces the old poll-every-500ms loop
             // with an authoritative "the stream really ended, and here's why" callback from WASAPI
@@ -194,7 +201,7 @@ public sealed class SoundcardCapture : IAudioCapture
                 }
 
                 var deviceInfo = devices.First(d => d.Index == deviceIndex.Value);
-                _log.LogInformation("Выбрано устройство записи: {Name} (индекс {Index})", deviceInfo.Name, deviceIndex.Value);
+                _log.LogInformation("[{Channel}] Выбрано устройство записи: {Name} (индекс {Index})", _channelName, deviceInfo.Name, deviceIndex.Value);
 
                 using var enumerator = new MMDeviceEnumerator();
                 var mmDevice = enumerator.GetDevice(deviceInfo.Id);
@@ -211,7 +218,7 @@ public sealed class SoundcardCapture : IAudioCapture
                 _capture = capture;
                 _status = StreamStatus.Streaming;
                 if (_reconnectAttempt > 0)
-                    _log.LogInformation("Переподключение к аудиоустройству выполнено");
+                    _log.LogInformation("[{Channel}] Переподключение к аудиоустройству выполнено", _channelName);
                 _reconnectAttempt = 0;
 
                 var cancelTask = Task.Delay(Timeout.Infinite, ct);
@@ -222,12 +229,12 @@ public sealed class SoundcardCapture : IAudioCapture
                 var stopException = stopSignal.Task.Result;
                 var stillEnumerated = EnumerateDevices().Any(d => d.Id == deviceInfo.Id);
                 _log.LogWarning(stopException,
-                    "Запись с устройства прекратилась неожиданно (устройство всё ещё видно системе: {StillEnumerated})",
-                    stillEnumerated);
+                    "[{Channel}] Запись с устройства прекратилась неожиданно (устройство всё ещё видно системе: {StillEnumerated})",
+                    _channelName, stillEnumerated);
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
-                _log.LogError(ex, "Ошибка захвата звука с устройства");
+                _log.LogError(ex, "[{Channel}] Ошибка захвата звука с устройства", _channelName);
             }
             finally
             {
@@ -237,10 +244,20 @@ public sealed class SoundcardCapture : IAudioCapture
             if (ct.IsCancellationRequested) break;
 
             _reconnectAttempt++;
+            var maxAttempts = _getMaxReconnectAttempts();
+            if (maxAttempts > 0 && _reconnectAttempt > maxAttempts)
+            {
+                _status = StreamStatus.Error;
+                _log.LogError("[{Channel}] Превышен предел попыток переподключения ({Max}) — канал останавливается", _channelName, maxAttempts);
+                if (_onReconnectExhausted != null) _ = Task.Run(_onReconnectExhausted);
+                return;
+            }
+
             _status = StreamStatus.Reconnecting;
-            _log.LogWarning("Устройство записи отключено. Попытка переподключения {Attempt} через {Delay}с",
-                _reconnectAttempt, _reconnectDelaySeconds);
-            try { await Task.Delay(TimeSpan.FromSeconds(_reconnectDelaySeconds), ct); }
+            var delaySeconds = Math.Max(1, _getReconnectDelaySeconds());
+            _log.LogWarning("[{Channel}] Устройство записи отключено. Попытка переподключения {Attempt} через {Delay}с",
+                _channelName, _reconnectAttempt, delaySeconds);
+            try { await Task.Delay(TimeSpan.FromSeconds(delaySeconds), ct); }
             catch (OperationCanceledException) { break; }
         }
 
@@ -266,7 +283,7 @@ public sealed class SoundcardCapture : IAudioCapture
         foreach (var (consumerId, writer) in consumers)
         {
             if (!writer.TryWrite(chunk))
-                _log.LogDebug("Очередь подписчика '{Consumer}' переполнена — кадр отброшен ({Frames} фреймов)", consumerId, frameCount);
+                _log.LogDebug("[{Channel}] Очередь подписчика '{Consumer}' переполнена — кадр отброшен ({Frames} фреймов)", _channelName, consumerId, frameCount);
         }
     }
 

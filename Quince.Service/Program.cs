@@ -2,6 +2,17 @@ using Quince.Service;
 using Quince.Service.Configuration;
 using Quince.Service.Services;
 
+// Every running channel keeps several long-lived background loops going at once (capture,
+// AudioWriter, LevelMeter, SilenceDetector, MetadataReader, ChannelEngine.MonitorAsync polling
+// every 500ms) — with several real-world channels running simultaneously, plus Blazor Server's own
+// SignalR circuit dispatch, that's dozens of Tasks contending for the thread pool. The pool's
+// default ramp-up (one new thread roughly every 500ms under sustained demand) can leave a burst of
+// simultaneously-ready continuations queued for a moment — observed as UI indicators freezing and
+// monitored playback audio glitching at the very same moments, even for a plain Icecast source with
+// no HLS segment jitter to blame. Raise the floor so the pool starts warm instead of ramping up
+// under load.
+ThreadPool.SetMinThreads(64, 64);
+
 // WebApplication.CreateBuilder(args) defaults ContentRootPath (and therefore WebRootPath =
 // ContentRootPath/wwwroot) to Directory.GetCurrentDirectory() — the process's *working* directory,
 // not the folder the exe/dll actually lives in. That's fine for `dotnet run` (CWD == project folder)
@@ -41,6 +52,9 @@ var appConfig = new YamlConfigLoader().LoadApp(configDir);
 var fileLoggerProvider = new FileLoggerProvider(logDir, appConfig);
 builder.Services.AddSingleton(fileLoggerProvider);
 builder.Services.AddSingleton<AppSettingsService>();
+builder.Services.AddSingleton(sp => new LocalizationService(
+    sp.GetRequiredService<AppSettingsService>(),
+    Path.Combine(AppContext.BaseDirectory, "i18n")));
 builder.Logging.AddProvider(fileLoggerProvider);
 
 var app = builder.Build();
@@ -54,6 +68,8 @@ if (!app.Environment.IsDevelopment())
 
 app.UseStaticFiles();
 app.UseRouting();
+
+app.MapGet("/api/playback/stream/{channelName}", AudioStreamEndpoint.StreamAsync);
 
 app.MapBlazorHub();
 app.MapFallbackToPage("/_Host");

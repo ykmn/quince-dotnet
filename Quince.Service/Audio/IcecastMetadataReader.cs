@@ -99,7 +99,7 @@ public sealed class IcecastMetadataReader : IMetadataReader
 
                 if (!MetadataHttp.TryGetIcyMetaInt(response, out var metaInt))
                 {
-                    _log.LogInformation("Stream has no icy-metaint, metadata unavailable: {Url}", _url);
+                    _log.LogInformation("[{Channel}] Stream has no icy-metaint, metadata unavailable: {Url}", _channelName, _url);
                     return; // matches legacy: an explicit "no metadata" response is not retried
                 }
 
@@ -119,7 +119,7 @@ public sealed class IcecastMetadataReader : IMetadataReader
             {
                 if (ct.IsCancellationRequested) break;
                 var delay = BackoffSequence[Math.Min(backoffIdx, BackoffSequence.Length - 1)];
-                _log.LogWarning("IcecastMetadataReader error ({Message}), reconnecting in {Delay}s", ex.Message, delay);
+                _log.LogWarning("[{Channel}] IcecastMetadataReader error ({Message}), reconnecting in {Delay}s", _channelName, ex.Message, delay);
                 try { await Task.Delay(TimeSpan.FromSeconds(delay), ct); }
                 catch (OperationCanceledException) { break; }
                 backoffIdx++;
@@ -150,7 +150,7 @@ public sealed class IcecastMetadataReader : IMetadataReader
 
             var (artist, title) = ParseMetadataString(raw);
             try { _onMetadata?.Invoke(new MetadataEvent(raw, artist, title, DateTimeOffset.Now)); }
-            catch (Exception ex) { _log.LogError(ex, "on_metadata callback raised"); }
+            catch (Exception ex) { _log.LogError(ex, "[{Channel}] on_metadata callback raised", _channelName); }
         }
     }
 

@@ -3,18 +3,19 @@
 @using Quince.Service.Services
 @inject ChannelManager ChannelManager
 @inject ChannelUiState UiState
+@inject LocalizationService Loc
 @implements IDisposable
 
 <div class="filter-row">
-    <input @bind="FilterText" @bind:event="oninput" placeholder="Фильтр по названию канала…"
-           title="Показывать только каналы, в названии которых встречается введённый текст (регистр не важен)." />
+    <input @bind="FilterText" @bind:event="oninput" placeholder="@Loc["index.filterPlaceholder"]"
+           title="@Loc["index.filterTitle"]" />
 </div>
 
 @if (!string.IsNullOrEmpty(UiState.StatusMessage))
 {
     <div class="status-bar">
         <span>@UiState.StatusMessage</span>
-        <button type="button" class="status-bar-close" @onclick="UiState.ClearStatusMessage" title="Скрыть">✕</button>
+        <button type="button" class="status-bar-close" @onclick="UiState.ClearStatusMessage" title="@Loc["index.statusHideTitle"]">✕</button>
     </div>
 }
 
@@ -23,11 +24,11 @@
     <p class="empty-state">
         @if (!ChannelManager.Channels.Any())
         {
-            <text>Каналы не настроены. Добавьте YAML-конфиги в папку config/.</text>
+            <text>@Loc["index.emptyNoChannels"]</text>
         }
         else
         {
-            <text>Ничего не найдено по фильтру «@FilterText».</text>
+            <text>@Loc.T("index.emptyFiltered", FilterText)</text>
         }
     </p>
 }
@@ -41,7 +42,7 @@ else
     </div>
 }
 
-<div class="app-footer">Каналов: @ChannelManager.Channels.Count</div>
+<div class="app-footer">@Loc.T("index.footerCount", ChannelManager.Channels.Count)</div>
 
 @code {
     private string FilterText { get; set; } = "";
@@ -57,6 +58,7 @@ else
         ChannelManager.ChannelUpdated += OnChannelUpdated;
         ChannelManager.ChannelRemoved += OnChannelsChanged;
         UiState.Changed += OnUiStateChanged;
+        Loc.Changed += OnUiStateChanged;
     }
 
     private void OnChannelsChanged(ChannelConfig config) => InvokeAsync(StateHasChanged);
@@ -71,5 +73,6 @@ else
         ChannelManager.ChannelUpdated -= OnChannelUpdated;
         ChannelManager.ChannelRemoved -= OnChannelsChanged;
         UiState.Changed -= OnUiStateChanged;
+        Loc.Changed -= OnUiStateChanged;
     }
 }

@@ -240,4 +240,65 @@ public class MetadataWriterTests : IDisposable
         var row = Assert.Single(ReadCsvRows(Assert.Single(FindCsvFiles(_tempDir))));
         Assert.Equal("M", row[3]);
     }
+
+    [Theory]
+    [InlineData("Новости")]
+    [InlineData("новости")]
+    [InlineData("НОВОСТИ")]
+    [InlineData("Новости дня")]
+    public void NewsKeyword_MatchInTitle_ClassifiedAsN(string title)
+    {
+        var mw = new MetadataWriter(_tempDir, "", getNewsKeywords: () => new[] { "Новости", "News", "Novosti" });
+        mw.OnMetadata(Evt(title, ts: new DateTimeOffset(2026, 6, 28, 12, 0, 0, TimeSpan.Zero)));
+        mw.Flush();
+
+        var row = Assert.Single(ReadCsvRows(Assert.Single(FindCsvFiles(_tempDir))));
+        Assert.Equal("N", row[3]);
+    }
+
+    [Fact]
+    public void NewsKeyword_MatchInArtist_ClassifiedAsN()
+    {
+        var mw = new MetadataWriter(_tempDir, "", getNewsKeywords: () => new[] { "News" });
+        mw.OnMetadata(Evt("Bulletin", "News Network", new DateTimeOffset(2026, 6, 28, 12, 0, 0, TimeSpan.Zero)));
+        mw.Flush();
+
+        var row = Assert.Single(ReadCsvRows(Assert.Single(FindCsvFiles(_tempDir))));
+        Assert.Equal("N", row[3]);
+    }
+
+    [Fact]
+    public void NoNewsKeywordMatch_ClassifiedAsM()
+    {
+        var mw = new MetadataWriter(_tempDir, "", getNewsKeywords: () => new[] { "Новости", "News", "Novosti" });
+        mw.OnMetadata(Evt("Freedom", "George Michael", new DateTimeOffset(2026, 6, 28, 12, 0, 0, TimeSpan.Zero)));
+        mw.Flush();
+
+        var row = Assert.Single(ReadCsvRows(Assert.Single(FindCsvFiles(_tempDir))));
+        Assert.Equal("M", row[3]);
+    }
+
+    [Fact]
+    public void NoNewsKeywordsConfigured_ClassifiedAsM()
+    {
+        var mw = new MetadataWriter(_tempDir, "");
+        mw.OnMetadata(Evt("Новости", ts: new DateTimeOffset(2026, 6, 28, 12, 0, 0, TimeSpan.Zero)));
+        mw.Flush();
+
+        var row = Assert.Single(ReadCsvRows(Assert.Single(FindCsvFiles(_tempDir))));
+        Assert.Equal("M", row[3]);
+    }
+
+    [Fact]
+    public void AdKeywordMatch_TakesPriorityOverNewsKeyword()
+    {
+        var mw = new MetadataWriter(_tempDir, "",
+            getAdKeywords: () => new[] { "Commercial" },
+            getNewsKeywords: () => new[] { "News" });
+        mw.OnMetadata(Evt("News Commercial Break", ts: new DateTimeOffset(2026, 6, 28, 12, 0, 0, TimeSpan.Zero)));
+        mw.Flush();
+
+        var row = Assert.Single(ReadCsvRows(Assert.Single(FindCsvFiles(_tempDir))));
+        Assert.Equal("C", row[3]);
+    }
 }

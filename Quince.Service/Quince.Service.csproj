@@ -19,11 +19,17 @@
     <PackageReference Include="NAudio" Version="2.2.1" />
     <PackageReference Include="YamlDotNet" Version="15.3.0" />
     <PackageReference Include="BCrypt.Net-Next" Version="4.0.3" />
+    <PackageReference Include="Markdig" Version="0.37.0" />
   </ItemGroup>
 
   <ItemGroup>
     <Content Include="config\**" CopyToOutputDirectory="PreserveNewest" />
+    <Content Update="i18n\**" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="tools\**" CopyToOutputDirectory="PreserveNewest" />
+    <!-- Universal CRT app-local deployment (Microsoft-documented method) — Windows 10/11 ships these
+         built-in, but older Windows (7 SP1/8/8.1) lacks them unless KB2999226 or the VC++
+         Redistributable is installed separately, which self-contained .NET apps otherwise still need. -->
+    <Content Include="redist\ucrt\*.dll" Link="%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="..\README.md" Link="README.md" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 

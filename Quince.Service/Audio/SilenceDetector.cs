@@ -13,6 +13,7 @@ public sealed class SilenceDetector
     private readonly Action _onSilence;
     private readonly Action _onSound;
     private readonly ILogger _log;
+    private readonly string _channelName;
 
     private string _state = "SOUND";
     private double _silenceTimer;
@@ -21,13 +22,14 @@ public sealed class SilenceDetector
     private CancellationTokenSource? _cts;
     private Task? _task;
 
-    public SilenceDetector(SilenceDetectorConfig config, ChannelReader<AudioChunk> reader, Action onSilence, Action onSound, ILogger log)
+    public SilenceDetector(SilenceDetectorConfig config, ChannelReader<AudioChunk> reader, Action onSilence, Action onSound, ILogger log, string channelName = "")
     {
         _config = config;
         _reader = reader;
         _onSilence = onSilence;
         _onSound = onSound;
         _log = log;
+        _channelName = channelName;
     }
 
     public bool IsSilent => _state == "SILENT";
@@ -88,7 +90,7 @@ public sealed class SilenceDetector
                     _silenceTimer = 0;
                     _soundTimer = 0;
                     _onSilence();
-                    _log.LogWarning("Тишина обнаружена (уровень {Level:F1} dBFS)", levelDb);
+                    _log.LogWarning("[{Channel}] Тишина обнаружена (уровень {Level:F1} dBFS)", _channelName, levelDb);
                 }
             }
             else
@@ -111,7 +113,7 @@ public sealed class SilenceDetector
                     _silenceTimer = 0;
                     _soundTimer = 0;
                     _onSound();
-                    _log.LogInformation("Звук возобновился (уровень {Level:F1} dBFS)", levelDb);
+                    _log.LogInformation("[{Channel}] Звук возобновился (уровень {Level:F1} dBFS)", _channelName, levelDb);
                 }
             }
         }

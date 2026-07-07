@@ -1,8 +1,11 @@
+@using Quince.Service.Services
+@inject LocalizationService Loc
+
 <Router AppAssembly="@typeof(App).Assembly">
     <Found Context="routeData">
         <RouteView RouteData="@routeData" DefaultLayout="@typeof(MainLayout)" />
     </Found>
     <NotFound>
-        <p>Страница не найдена.</p>
+        <p>@Loc["app.notFound"]</p>
     </NotFound>
 </Router>

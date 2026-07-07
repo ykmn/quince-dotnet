@@ -144,6 +144,7 @@ html, body {
     background: transparent;
     border: none;
     color: #374151;
+    font-family: 'Nunito', 'Segoe UI', system-ui, sans-serif;
     font-size: 13px;
     text-align: left;
     padding: 9px 14px;
@@ -160,6 +161,18 @@ html, body {
     height: 1px;
     background: var(--quince-yellow-border);
     margin: 0;
+}
+
+.menu-lang-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 14px;
+}
+
+.menu-lang-icon {
+    font-size: 13px;
+    margin-right: 2px;
 }
 
 .menu-version {
@@ -192,6 +205,26 @@ html, body {
     margin: 0 0 8px;
     font-size: 16px;
     color: #111827;
+}
+
+.about-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.about-header h2 {
+    margin: 0;
+}
+
+.about-copyright {
+    font-size: 11px;
+    color: #9ca3af;
+    margin-top: 10px;
+}
+
+.about-copyright a {
+    color: #8A6D00;
 }
 
 .modal-box p {
@@ -379,6 +412,15 @@ html, body {
     background: #fef2f2;
     color: #dc2626;
     border: 1px solid #fecaca;
+    padding: 0 8px;
+}
+
+/* ▶/⏹ playback-monitoring button while a channel is playing to the audio output — light pink
+   distinguishes it from the (red) recording Стоп button and the (grey) idle ▶ state. */
+.btn-playback-stop {
+    background: #fce7f3;
+    color: #be185d;
+    border: 1px solid #fbcfe8;
     padding: 0 8px;
 }
 
@@ -572,6 +614,44 @@ html, body {
     margin-top: 12px;
 }
 
+.dialog-tabs {
+    display: flex;
+    gap: 6px;
+    margin-top: 4px;
+    margin-bottom: 4px;
+}
+
+/* Same pill shape/sizing as the rest of the app's buttons (.btn) — inactive tabs read like
+   .btn-small, the active tab picks up the app's own brand yellow instead of a generic accent
+   color, so it reads as "this app's UI" rather than a stock tab-strip widget. */
+.dialog-tab {
+    height: 24px;
+    line-height: 22px;
+    border-radius: 6px;
+    padding: 0 12px;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    background: #f9fafb;
+    color: #6b7280;
+    border: 1px solid #e5e7eb;
+}
+
+.dialog-tab:hover {
+    background: #f3f4f6;
+    color: #374151;
+}
+
+.dialog-tab.dialog-tab-active {
+    background: var(--quince-yellow-bg);
+    color: var(--quince-yellow-text);
+    border: 1px solid var(--quince-yellow-border);
+}
+
+.dialog-tab.dialog-tab-active:hover {
+    background: var(--quince-yellow-hover);
+}
+
 .form-actions .btn {
     margin-top: 0;
 }
@@ -612,18 +692,92 @@ html, body {
     font-family: monospace;
 }
 
-.readme-text {
-    white-space: pre-wrap;
+.readme-content {
     word-break: break-word;
-    font-size: 12px;
+    font-size: 13px;
     line-height: 1.5;
     color: #111827;
     background: #f9fafb;
     border: 1px solid #e5e7eb;
     border-radius: 8px;
-    padding: 12px;
+    padding: 12px 16px;
     max-height: 60vh;
     overflow-y: auto;
+    overflow-x: auto;
+}
+
+.readme-content h1,
+.readme-content h2,
+.readme-content h3,
+.readme-content h4 {
+    color: var(--quince-yellow-text);
+    margin: 16px 0 8px;
+    line-height: 1.3;
+}
+
+.readme-content h1:first-child,
+.readme-content h2:first-child,
+.readme-content h3:first-child {
+    margin-top: 0;
+}
+
+.readme-content p,
+.readme-content ul,
+.readme-content ol,
+.readme-content blockquote,
+.readme-content table {
+    margin: 6px 0;
+}
+
+.readme-content ul,
+.readme-content ol {
+    padding-left: 24px;
+}
+
+.readme-content a {
+    color: #8A6D00;
+}
+
+.readme-content code {
+    font-family: monospace;
+    font-size: 12px;
+    background: #eef0f2;
+    border-radius: 3px;
+    padding: 1px 4px;
+}
+
+.readme-content pre {
+    background: #eef0f2;
+    border-radius: 6px;
+    padding: 8px 10px;
+    overflow-x: auto;
+}
+
+.readme-content pre code {
+    background: none;
+    padding: 0;
+}
+
+.readme-content blockquote {
+    border-left: 3px solid var(--quince-yellow-border);
+    padding-left: 10px;
+    color: #4b5563;
+}
+
+.readme-content table {
+    border-collapse: collapse;
+}
+
+.readme-content th,
+.readme-content td {
+    border: 1px solid #e5e7eb;
+    padding: 4px 8px;
+}
+
+.readme-content hr {
+    border: none;
+    border-top: 1px solid #e5e7eb;
+    margin: 12px 0;
 }
 
 /* ── Body layout: card list + optional docked indicators sidebar side by side ──── */
@@ -709,12 +863,22 @@ html, body {
 
 /* Groups TP L + TP R with a tighter 5px gap than the rest of the meters, which stay at the
    outer .indicators-panel-meters gap (10px) — flex: 2 so the pair takes roughly the same total
-   width the two individual meters would have taken outside a group. */
+   width the two individual meters would have taken outside a group. Children override .vmeter's
+   flex:1 with flex:0 0 auto so they hug their own content instead of stretching to fill the
+   group — otherwise each track (fixed 22px, centered via .vmeter's align-items:center) floats in
+   the middle of a much wider flexed column, and the visible gap between the two tracks ends up
+   far bigger than the 5px `gap` actually set here. justify-content centers the now content-sized
+   pair within the group's share of the row. */
 .vmeter-group {
     flex: 2;
     min-width: 0;
     display: flex;
+    justify-content: center;
     gap: 5px;
+}
+
+.vmeter-group .vmeter {
+    flex: 0 0 auto;
 }
 
 /* -Inf..0 LU scale to the left of the meters. The three hidden placeholder rows mirror
@@ -788,6 +952,8 @@ html, body {
     font-family: monospace;
     color: #111827;
     white-space: nowrap;
+    min-width: 6ch;
+    text-align: center;
 }
 
 .meter-max {
@@ -803,6 +969,8 @@ html, body {
     background: none;
     border: none;
     padding: 0;
+    min-width: 6ch;
+    text-align: center;
 }
 
 .meter-max:hover {

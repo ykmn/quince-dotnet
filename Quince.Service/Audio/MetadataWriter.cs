@@ -16,16 +16,20 @@ public sealed class MetadataWriter
 
     private readonly string _savePath;
     private readonly Func<IReadOnlyList<string>>? _getAdKeywords;
+    private readonly Func<IReadOnlyList<string>>? _getNewsKeywords;
     private readonly object _lock = new();
     private PendingEntry? _pending;
 
     /// <param name="getAdKeywords">Reads the live-current ad-keyword list at classification time
     /// (not just a snapshot from when the channel started) — null skips "C" classification (ElemClass
-    /// is then only ever "B"/"M").</param>
-    public MetadataWriter(string savePath, string metadataPath, Func<IReadOnlyList<string>>? getAdKeywords = null)
+    /// is then only ever "B"/"M"/"N").</param>
+    /// <param name="getNewsKeywords">Same idea as <paramref name="getAdKeywords"/> but for "N" (news).</param>
+    public MetadataWriter(string savePath, string metadataPath, Func<IReadOnlyList<string>>? getAdKeywords = null,
+        Func<IReadOnlyList<string>>? getNewsKeywords = null)
     {
         _savePath = string.IsNullOrEmpty(metadataPath) ? Path.Combine(savePath, "meta") : metadataPath;
         _getAdKeywords = getAdKeywords;
+        _getNewsKeywords = getNewsKeywords;
     }
 
     /// <summary>Called when new metadata arrives. Thread-safe.</summary>
@@ -71,22 +75,28 @@ public sealed class MetadataWriter
     }
 
     /// <summary>"B" for a blank/break marker (no title), "C" if the title/artist contains a
-    /// configured ad keyword (case-insensitive substring), otherwise "M" for ordinary music.</summary>
+    /// configured ad keyword (case-insensitive substring), "N" if it contains a configured news
+    /// keyword, otherwise "M" for ordinary music. Ad keywords are checked first, so a title matching
+    /// both lists (unlikely in practice) comes out as "C".</summary>
     private string ElemClass(string title, string artist)
     {
         if (string.IsNullOrEmpty(title)) return "B";
 
-        var keywords = _getAdKeywords?.Invoke();
-        if (keywords != null)
-        {
-            var haystack = string.IsNullOrEmpty(artist) ? title : $"{artist} {title}";
-            foreach (var keyword in keywords)
-            {
-                if (!string.IsNullOrEmpty(keyword) && haystack.Contains(keyword, StringComparison.OrdinalIgnoreCase))
-                    return "C";
-            }
-        }
+        var haystack = string.IsNullOrEmpty(artist) ? title : $"{artist} {title}";
+        if (MatchesAnyKeyword(haystack, _getAdKeywords?.Invoke())) return "C";
+        if (MatchesAnyKeyword(haystack, _getNewsKeywords?.Invoke())) return "N";
         return "M";
+    }
+
+    private static bool MatchesAnyKeyword(string haystack, IReadOnlyList<string>? keywords)
+    {
+        if (keywords == null) return false;
+        foreach (var keyword in keywords)
+        {
+            if (!string.IsNullOrEmpty(keyword) && haystack.Contains(keyword, StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+        return false;
     }
 
     private void WriteRow(DateTimeOffset dt, string name, string artist, string elemClass, string lengthStr)

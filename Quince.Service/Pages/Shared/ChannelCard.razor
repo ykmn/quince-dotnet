@@ -7,9 +7,10 @@
 @inject ChannelUiState UiState
 @inject AppSettingsService AppSettings
 @inject AudioPlaybackService PlaybackService
+@inject LocalizationService Loc
 @implements IAsyncDisposable
 
-<div class="channel-card">
+<div class="channel-card @StatusBorderClass">
     <div class="channel-row1">
         <div class="status-dot @StatusDotClass" title="@StatusDotTitle"></div>
         @if (Config.Source.Type == "stream")
@@ -18,39 +19,39 @@
         }
         @if (IsEligibleType)
         {
-            <div class="status-dot @MetadataHealthDotClass" title="@MetadataHealthDotTitle"></div>
+            <div class="status-dot @SoundDotClass" title="@SoundDotTitle"></div>
         }
         <div class="channel-name" title="@Config.Name">@Config.Name</div>
         @if (_status.ReconnectAttempt > 0)
         {
-            <div class="reconnect-label">Реконнект #@_status.ReconnectAttempt</div>
+            <div class="reconnect-label">@Loc.T("channelCard.reconnectLabel", _status.ReconnectAttempt)</div>
         }
         <div class="spacer"></div>
         <button class="btn @(_status.IsRecording ? "btn-stop" : "btn-start")"
-                title="@(_status.IsRecording ? "Остановить запись" : "Начать запись")"
+                title="@(_status.IsRecording ? Loc["channelCard.stopTitle"] : Loc["channelCard.startTitle"])"
                 disabled="@(!IsEligibleType)"
                 @onclick="ToggleRecording">
-            @(_status.IsRecording ? "Стоп" : "Старт")
+            @(_status.IsRecording ? Loc["channelCard.stop"] : Loc["channelCard.start"])
         </button>
-        <button class="btn btn-small" title="@(IsPlayingThis ? "Остановить прослушивание" : "Прослушать канал на аудиовыходе (настраивается в Настройках приложения)")"
+        <button class="btn @(IsPlayingThis ? "btn-playback-stop" : "btn-small")" title="@(IsPlayingThis ? Loc["channelCard.stopPlaybackTitle"] : Loc["channelCard.playTitle"])"
                 disabled="@(!IsEligibleType)"
                 @onclick="TogglePlayback">
             @(IsPlayingThis ? "⏹" : "▶")
         </button>
-        <button class="btn btn-small" title="Редактировать настройки канала" @onclick="Edit">✎</button>
-        <button class="btn btn-small" title="Клонировать канал" @onclick="Clone">⧉</button>
-        <button class="btn btn-meters" title="Открыть окно индикаторов уровня" @onclick="OpenIndicators">📊 Индикаторы</button>
-        <button class="btn btn-delete" title="Удалить канал" @onclick="Delete">✕</button>
+        <button class="btn btn-small" title="@Loc["channelCard.editTitle"]" @onclick="Edit">✎</button>
+        <button class="btn btn-small" title="@Loc["channelCard.cloneTitle"]" @onclick="Clone">⧉</button>
+        <button class="btn btn-meters" title="@Loc["channelCard.metersTitle"]" @onclick="OpenIndicators">@Loc["channelCard.meters"]</button>
+        <button class="btn btn-delete" title="@Loc["channelCard.deleteTitle"]" @onclick="Delete">✕</button>
     </div>
-    <div class="level-widget" title="Текущий уровень True Peak (мгновенный)">
+    <div class="level-widget" title="@Loc["channelCard.levelTitle"]">
         <div class="level-row">
             <span class="level-label">TP</span>
             <div class="level-track" style="background: @(TrackGradient);"><div class="level-cover" style="width: @(CoverPercentText)%;"></div></div>
             <span class="level-value">@LevelValueText</span>
         </div>
     </div>
-    <div class="channel-row2" title="Источник звука этого канала">Вход: @ChannelDisplayFormatter.FormatSource(Config)</div>
-    <div class="channel-row3" title="Формат и место сохранения аудиофайлов этого канала">Файл: @ChannelDisplayFormatter.FormatOutput(Config)</div>
+    <div class="channel-row2" title="@Loc["channelCard.sourceTitle"]">@Loc.T("channelCard.sourceLabel", ChannelDisplayFormatter.FormatSource(Config))</div>
+    <div class="channel-row3" title="@Loc["channelCard.outputTitle"]">@Loc.T("channelCard.outputLabel", ChannelDisplayFormatter.FormatOutput(Config, Loc))</div>
 </div>
 
 @code {
@@ -61,46 +62,62 @@
     private LevelReading _level = new();
     private bool _disposed;
 
+    // Green while recording (including during a transient reconnect attempt — IsRecording stays
+    // true for those, the "Реконнект #N" label next to the name already surfaces that separately);
+    // grey once stopped normally; red only when the channel stopped itself after exhausting its
+    // reconnect-attempt budget (EngineStatus.HasError), until it's started again.
+    // Mirrors StatusDotClass below so the card's left border reinforces the same
+    // recording/error/stopped state at a glance, without needing to look at the dot itself.
+    private string StatusBorderClass => _status switch
+    {
+        { IsRecording: true } => "is-recording",
+        { HasError: true } => "has-error",
+        _ => "",
+    };
+
     private string StatusDotClass => _status switch
     {
-        { IsRecording: false } => "",
-        { ReconnectAttempt: > 0 } => "dot-yellow",
-        _ => "dot-green",
+        { IsRecording: true } => "dot-green",
+        { HasError: true } => "dot-red",
+        _ => "",
     };
 
     private string StatusDotTitle => _status switch
     {
-        { IsRecording: false } => "Запись не идёт",
-        { ReconnectAttempt: > 0 } => $"Переподключение (попытка {_status.ReconnectAttempt})",
-        _ => "Запись идёт",
+        { IsRecording: true, ReconnectAttempt: > 0 } => Loc.T("channelCard.statusRecordingReconnect", _status.ReconnectAttempt),
+        { IsRecording: true } => Loc["channelCard.statusRecording"],
+        { HasError: true } => Loc["channelCard.statusError"],
+        _ => Loc["channelCard.statusStopped"],
     };
 
     private bool HasMetadata => !string.IsNullOrEmpty(Config.Source.MetadataUrl);
-    private string MetadataDotClass => HasMetadata ? "dot-purple" : "";
-    private string MetadataDotTitle => Config.Source.MetadataUrl switch
+
+    // Purple only while metadata is actively flowing right now — grey covers both "not configured"
+    // and "configured but nothing detected (yet or at all)" alike, per the simplified indicator.
+    private string MetadataDotClass => _status.MetadataOk == true ? "dot-purple" : "";
+    private string MetadataDotTitle => (Config.Source.MetadataUrl, _status.MetadataOk) switch
     {
-        "" => "Метаданные не настроены",
-        "icy" => "Метаданные: ICY (Icecast)",
-        var url => $"Метаданные: HLS JSON ({url})",
+        ("", _) => Loc["channelCard.metadataNone"],
+        (_, true) => Loc["channelCard.metadataFlowing"],
+        _ => Loc["channelCard.metadataNotFlowing"],
     };
 
-    // Reports metadata health rather than raw audio level: gray while the channel isn't running
-    // (nothing to check yet), red only once a metadata URL is configured but nothing has been
-    // detected after ChannelEngine's grace period, green otherwise (including channels with no
-    // metadata URL at all — there's nothing to flag for those).
-    private string MetadataHealthDotClass => _status switch
+    // Green while sound is present, red during silence (SilenceDetector.OnSilence), grey once the
+    // channel is stopped. Channels with the silence detector disabled in config never see IsSilent
+    // flip to true, so this simply stays green while recording — same "nothing to flag" convention
+    // already used by the metadata dot above.
+    private string SoundDotClass => _status switch
     {
         { IsRecording: false } => "",
-        { MetadataOk: false } => "dot-red",
+        { IsSilent: true } => "dot-red",
         _ => "dot-green",
     };
 
-    private string MetadataHealthDotTitle => _status switch
+    private string SoundDotTitle => _status switch
     {
-        { IsRecording: false } => "Запись не идёт",
-        { MetadataOk: false } => "Метаданные не определяются",
-        { MetadataOk: true } => "Метаданные поступают",
-        _ => "Метаданные не настроены",
+        { IsRecording: false } => Loc["channelCard.statusStopped"],
+        { IsSilent: true } => Loc["channelCard.soundSilence"],
+        _ => Loc["channelCard.soundPresent"],
     };
 
     private bool IsEligibleType => Config.Source.Type is "stream" or "soundcard";
@@ -121,6 +138,7 @@
     {
         AppSettings.Changed += OnSettingsChanged;
         PlaybackService.Changed += OnSettingsChanged;
+        Loc.Changed += OnSettingsChanged;
         if (!IsEligibleType) return;
 
         _status = EngineManager.GetStatus(Config.Name) ?? new EngineStatus();
@@ -145,7 +163,7 @@
         }
         catch (Exception ex)
         {
-            UiState.SetStatusMessage($"Не удалось воспроизвести канал «{Config.Name}»: {ex.Message}");
+            UiState.SetStatusMessage(Loc.T("channelCard.playbackError", Config.Name, ex.Message));
         }
     }
 
@@ -176,7 +194,7 @@
 
     private void Edit() => UiState.OpenEditChannel(Config);
 
-    private void Clone() => ChannelManager.Clone(Config.Filename);
+    private void Clone() => UiState.OpenCloneChannel(Config);
 
     private void Delete() => UiState.OpenDeleteChannel(Config);
 
@@ -187,6 +205,7 @@
         _disposed = true;
         AppSettings.Changed -= OnSettingsChanged;
         PlaybackService.Changed -= OnSettingsChanged;
+        Loc.Changed -= OnSettingsChanged;
         if (IsEligibleType)
         {
             EngineManager.LevelUpdated -= OnLevelUpdated;

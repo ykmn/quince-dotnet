@@ -46,7 +46,7 @@ public class ChannelManager : IHostedService
                 _channels.Add(config);
                 using (_logger.BeginScope(new Dictionary<string, object> { ["Channel"] = config.Name }))
                 {
-                    _logger.LogInformation("Канал загружен из {File}", config.Filename);
+                    _logger.LogInformation("[{Channel}] Канал загружен из {File}", config.Name, config.Filename);
                 }
             }
         }
@@ -130,7 +130,7 @@ public class ChannelManager : IHostedService
             _channels.RemoveAt(index);
             var path = Path.Combine(_configDir, filename);
             try { File.Delete(path); }
-            catch (IOException ex) { _logger.LogWarning(ex, "Не удалось удалить файл конфига {File}", filename); }
+            catch (IOException ex) { _logger.LogWarning(ex, "[{Channel}] Не удалось удалить файл конфига {File}", removed.Name, filename); }
             _logger.LogInformation("Канал '{Channel}' удалён ({File})", removed.Name, filename);
         }
         ChannelRemoved?.Invoke(removed);

@@ -1,14 +1,15 @@
 @using Quince.Service.Configuration
 @using Quince.Service.Services
 @inject ChannelManager ChannelManager
+@inject LocalizationService Loc
 
 <div class="modal-overlay" @onclick="Close">
     <div class="modal-box" @onclick:stopPropagation="true">
-        <h2>Удалить канал?</h2>
-        <p>Канал «@Config.Name» и его файл конфигурации (@Config.Filename) будут удалены безвозвратно. Уже записанные аудиофайлы не удаляются.</p>
+        <h2>@Loc["delete.title"]</h2>
+        <p>@Loc.T("delete.body", Config.Name, Config.Filename)</p>
         <div class="form-actions">
-            <button class="btn btn-small" @onclick="Close">Отмена</button>
-            <button class="btn btn-stop" @onclick="Confirm">Удалить</button>
+            <button class="btn btn-small" @onclick="Close">@Loc["common.cancel"]</button>
+            <button class="btn btn-stop" @onclick="Confirm">@Loc["common.delete"]</button>
         </div>
     </div>
 </div>

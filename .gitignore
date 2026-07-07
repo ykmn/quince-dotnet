@@ -10,6 +10,10 @@ config/
 log/
 previews/
 recording/
+Quince.Service/scripts/apricot
+Quince.Service/scripts/config
+
+docs/superpowers/
 .superpowers/
 .venv/
 venv/

@@ -29,6 +29,7 @@ public sealed class HlsMetadataReader : IMetadataReader
     private readonly string _channelName;
     private readonly string _ffprobePath;
     private readonly ILogger _log;
+    private readonly string? _knownMetadataUrl;
 
     private CancellationTokenSource? _cts;
     private Task? _task;
@@ -36,8 +37,14 @@ public sealed class HlsMetadataReader : IMetadataReader
     private volatile bool _hasMetadata;
     private string? _metadataUrl;
 
+    /// <param name="knownMetadataUrl">A JSON endpoint already confirmed by a previous "Определить
+    /// наличие метаданных" detection (<see cref="Configuration.SourceConfig.MetadataUrl"/>), tried
+    /// directly before falling back to re-deriving candidates from <paramref name="playlistUrl"/>.
+    /// Needed because the JSON endpoint's host/path can differ from the playlist's (e.g. a station
+    /// serving playlists under one stream id but metadata under another) — re-deriving from the
+    /// playlist URL alone would never find it.</param>
     public HlsMetadataReader(string playlistUrl, bool allowInvalidSsl, Action<MetadataEvent>? onMetadata,
-        string channelName, string ffprobePath, ILogger log)
+        string channelName, string ffprobePath, ILogger log, string? knownMetadataUrl = null)
     {
         _playlistUrl = playlistUrl;
         _allowInvalidSsl = allowInvalidSsl;
@@ -45,6 +52,7 @@ public sealed class HlsMetadataReader : IMetadataReader
         _channelName = channelName;
         _ffprobePath = ffprobePath;
         _log = log;
+        _knownMetadataUrl = knownMetadataUrl;
     }
 
     public bool HasMetadata => _hasMetadata;
@@ -71,6 +79,14 @@ public sealed class HlsMetadataReader : IMetadataReader
     {
         using var scope = _log.BeginScope(new Dictionary<string, object> { ["Channel"] = _channelName });
 
+        if (!string.IsNullOrEmpty(_knownMetadataUrl) && await TryKnownUrlAsync(ct))
+        {
+            _hasMetadata = true;
+            _log.LogInformation("[{Channel}] Метаданные HLS: JSON endpoint {Url}", _channelName, _metadataUrl);
+            await JsonPollLoopAsync(ct);
+            return;
+        }
+
         // A single failed discovery attempt used to permanently fall back to the one-shot ID3
         // probe for the rest of the channel's session, even though the JSON endpoint genuinely
         // existed — e.g. a transient DNS/network hiccup right at app startup (several channels
@@ -90,19 +106,19 @@ public sealed class HlsMetadataReader : IMetadataReader
         if (_metadataUrl != null)
         {
             _hasMetadata = true;
-            _log.LogInformation("Метаданные HLS: JSON endpoint {Url}", _metadataUrl);
+            _log.LogInformation("[{Channel}] Метаданные HLS: JSON endpoint {Url}", _channelName, _metadataUrl);
             await JsonPollLoopAsync(ct);
             return;
         }
 
-        _log.LogInformation("JSON метаданные не найдены, пробуем ID3 через FFmpeg");
+        _log.LogInformation("[{Channel}] JSON метаданные не найдены, пробуем ID3 через FFmpeg", _channelName);
 
         if (!File.Exists(_ffprobePath))
         {
             // Expected on machines where ffprobe.exe hasn't been placed next to ffmpeg.exe in
             // tools/ — it isn't bundled (same licensing-review status as bass.dll, see README).
             // Not an error: this is only the last-resort HLS metadata fallback.
-            _log.LogInformation("ffprobe.exe не найден ({Path}) — резервный разбор ID3-тегов недоступен, метаданные не обнаружены", _ffprobePath);
+            _log.LogInformation("[{Channel}] ffprobe.exe не найден ({Path}) — резервный разбор ID3-тегов недоступен, метаданные не обнаружены", _channelName, _ffprobePath);
             return;
         }
 
@@ -116,12 +132,43 @@ public sealed class HlsMetadataReader : IMetadataReader
             }
             else
             {
-                _log.LogInformation("Метаданные не обнаружены");
+                _log.LogInformation("[{Channel}] Метаданные не обнаружены", _channelName);
             }
         }
         catch (Exception ex)
         {
-            _log.LogWarning(ex, "Ошибка FFmpeg ID3 probe");
+            _log.LogWarning(ex, "[{Channel}] Ошибка FFmpeg ID3 probe", _channelName);
+        }
+    }
+
+    /// <summary>Tries <see cref="_knownMetadataUrl"/> directly (a single fetch). On success, sets
+    /// <see cref="_metadataUrl"/> so <see cref="JsonPollLoopAsync"/> keeps polling it. Returns
+    /// false on any failure (unreachable, malformed URL, or a response with no recognizable
+    /// title) so the caller can fall back to fresh discovery.</summary>
+    private async Task<bool> TryKnownUrlAsync(CancellationToken ct)
+    {
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        cts.CancelAfter(DiscoveryTimeout);
+        if (!await ValidateUrlAsync(_knownMetadataUrl!, _allowInvalidSsl, cts.Token)) return false;
+        _metadataUrl = _knownMetadataUrl;
+        return true;
+    }
+
+    /// <summary>Fetches <paramref name="url"/> once and reports whether it currently yields a
+    /// recognizable title — used both by the runtime reader (to trust an already-known-good
+    /// endpoint before re-deriving candidates) and by <see cref="Services.MetadataDetectionService"/>
+    /// (so the "Определить" button doesn't report "not found" for a station whose saved endpoint
+    /// still works, just because it lives under a different path than the current playlist URL).</summary>
+    internal static async Task<bool> ValidateUrlAsync(string url, bool allowInvalidSsl, CancellationToken ct)
+    {
+        try
+        {
+            var data = await FetchJsonAsync(url, allowInvalidSsl, ct);
+            return ExtractFromJson(data) != null;
+        }
+        catch
+        {
+            return false;
         }
     }
 
@@ -142,7 +189,7 @@ public sealed class HlsMetadataReader : IMetadataReader
             }
             catch (Exception ex)
             {
-                _log.LogWarning(ex, "Ошибка получения метаданных JSON");
+                _log.LogWarning(ex, "[{Channel}] Ошибка получения метаданных JSON", _channelName);
             }
 
             try { await Task.Delay(PollInterval, ct); }
@@ -156,7 +203,7 @@ public sealed class HlsMetadataReader : IMetadataReader
         if (raw == _lastRaw) return;
         _lastRaw = raw;
         try { _onMetadata?.Invoke(new MetadataEvent(raw, artist, title, DateTimeOffset.Now)); }
-        catch (Exception ex) { _log.LogError(ex, "on_metadata callback raised"); }
+        catch (Exception ex) { _log.LogError(ex, "[{Channel}] on_metadata callback raised", _channelName); }
     }
 
     private static async Task<JsonElement> FetchJsonAsync(string url, bool allowInvalidSsl, CancellationToken ct)

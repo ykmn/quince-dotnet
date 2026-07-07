@@ -1,0 +1,28 @@
+@using Quince.Service.Configuration
+@using Quince.Service.Services
+@inject ChannelManager ChannelManager
+@inject LocalizationService Loc
+
+<div class="modal-overlay" @onclick="Close">
+    <div class="modal-box" @onclick:stopPropagation="true">
+        <h2>@Loc["clone.title"]</h2>
+        <p>@Loc.T("clone.body", Config.Name)</p>
+        <div class="form-actions">
+            <button class="btn btn-small" @onclick="Close">@Loc["common.cancel"]</button>
+            <button class="btn btn-start" @onclick="Confirm">@Loc["clone.confirm"]</button>
+        </div>
+    </div>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public ChannelConfig Config { get; set; } = null!;
+    [Parameter] public EventCallback OnClose { get; set; }
+
+    private void Confirm()
+    {
+        ChannelManager.Clone(Config.Filename);
+        Close();
+    }
+
+    private void Close() => OnClose.InvokeAsync();
+}

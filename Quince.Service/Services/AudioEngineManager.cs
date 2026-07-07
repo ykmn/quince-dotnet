@@ -12,6 +12,8 @@ public class AudioEngineManager : IHostedService
     private readonly string _ffmpegPath;
     private readonly string _ffprobePath;
 
+    public string FfmpegPath => _ffmpegPath;
+
     private readonly Dictionary<string, ChannelEngine> _engines = new();
     private readonly object _lock = new();
 
@@ -125,7 +127,10 @@ public class AudioEngineManager : IHostedService
                 reading => PushLevel(channelName, reading),
                 status => PushStatus(channelName, status),
                 frame => PushGoniometer(channelName, frame),
-                () => _appSettings.Current.AdKeywords);
+                () => _appSettings.Current.AdKeywords,
+                () => _appSettings.Current.ReconnectDelaySeconds,
+                () => _appSettings.Current.ReconnectMaxAttempts,
+                () => _appSettings.Current.NewsKeywords);
 
             _engines[channelName] = engine;
             try

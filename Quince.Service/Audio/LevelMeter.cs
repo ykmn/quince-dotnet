@@ -9,10 +9,10 @@ public sealed class LevelMeter
     private const double SWindowSeconds = 3.0;
     // Each update pushes a LevelReading through AudioEngineManager to every subscribed Blazor
     // component and triggers a StateHasChanged/render round-trip over that circuit's single SignalR
-    // connection. At 0.1s (10Hz) this was fine for 1-2 channels but with ~5 channels recording at
-    // once (50 renders/sec on one connection) the UI visibly lagged/froze — cut to 5Hz, still reads
-    // as "live" for a status meter while roughly halving render traffic.
-    private const double UpdateIntervalSeconds = 0.2;
+    // connection. Was cut to 0.2s (5Hz) in 0.00.008 to halve render traffic with ~5 channels
+    // recording at once; restored to 0.1s (10Hz) per explicit request even though that reintroduces
+    // the higher render rate — see HISTORY.md for the tradeoff if it needs revisiting.
+    private const double UpdateIntervalSeconds = 0.1;
     private const int GoniometerMaxPoints = 256;
 
     // ~1 hour of integrated-loudness block history at 400ms/block (MWindowSeconds), i.e.
@@ -25,6 +25,7 @@ public sealed class LevelMeter
     private readonly Action<LevelReading> _onUpdate;
     private readonly Action<GoniometerFrame>? _onGoniometerUpdate;
     private readonly ILogger _log;
+    private readonly string _channelName;
 
     private readonly KWeightingFilter _kWeight;
     private readonly double[][] _mBuf;
@@ -48,13 +49,14 @@ public sealed class LevelMeter
     private Task? _task;
 
     public LevelMeter(ChannelReader<AudioChunk> reader, int sampleRate, int channels, Action<LevelReading> onUpdate, ILogger log,
-        Action<GoniometerFrame>? onGoniometerUpdate = null)
+        Action<GoniometerFrame>? onGoniometerUpdate = null, string channelName = "")
     {
         _reader = reader;
         _sampleRate = sampleRate;
         _onUpdate = onUpdate;
         _onGoniometerUpdate = onGoniometerUpdate;
         _log = log;
+        _channelName = channelName;
 
         _kWeight = new KWeightingFilter(sampleRate);
         var mCap = (int)Math.Ceiling(MWindowSeconds * sampleRate);
@@ -104,7 +106,7 @@ public sealed class LevelMeter
                 }
                 catch (Exception ex)
                 {
-                    _log.LogError(ex, "Ошибка обработки чанка в LevelMeter");
+                    _log.LogError(ex, "[{Channel}] Ошибка обработки чанка в LevelMeter", _channelName);
                     continue;
                 }
 
@@ -150,7 +152,7 @@ public sealed class LevelMeter
             }
             catch (Exception ex)
             {
-                _log.LogError(ex, "Колбэк обновления гониометра выбросил исключение");
+                _log.LogError(ex, "[{Channel}] Колбэк обновления гониометра выбросил исключение", _channelName);
             }
         }
 
@@ -184,7 +186,7 @@ public sealed class LevelMeter
             TruePeakRDb: tpR);
 
         try { _onUpdate(reading); }
-        catch (Exception ex) { _log.LogError(ex, "Колбэк обновления уровня выбросил исключение"); }
+        catch (Exception ex) { _log.LogError(ex, "[{Channel}] Колбэк обновления уровня выбросил исключение", _channelName); }
     }
 
     private static void WriteRing(double[][] buf, ref int head, double[][] perChannel, int frames)

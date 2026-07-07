@@ -6,10 +6,11 @@
 @inject YamlConfigLoader Loader
 @inject ChannelUiState UiState
 @inject MetadataDetectionService MetadataService
+@inject LocalizationService Loc
 
 <div class="modal-overlay">
     <div class="modal-box modal-box-wide" @onclick:stopPropagation="true">
-        <h2>@(_isCreate ? "Новый канал записи" : $"Редактирование канала «{UiState.EditTarget!.Name}»")</h2>
+        <h2>@(_isCreate ? Loc["channelEdit.titleNew"] : Loc.T("channelEdit.titleEdit", UiState.EditTarget!.Name))</h2>
 
         @if (!string.IsNullOrEmpty(_error))
         {
@@ -17,186 +18,204 @@
         }
 
         <div class="form-grid">
-            <label title="Отображаемое имя канала (также используется в логах и статусах).">Название</label>
-            <input @bind="_draft.Name" @bind:event="oninput" title="Отображаемое имя канала (также используется в логах и статусах)." />
+            <label title="@Loc["channelEdit.nameTitle"]">@Loc["channelEdit.nameLabel"]</label>
+            <input @bind="_draft.Name" @bind:event="oninput" title="@Loc["channelEdit.nameTitle"]" />
+        </div>
 
-            <label title="Откуда захватывается звук: сетевой поток (Icecast/HLS) или локальная звуковая карта.">Тип источника</label>
-            <select @bind="_draft.Source.Type" @bind:after="OnSourceTypeChanged" title="Откуда захватывается звук: сетевой поток (Icecast/HLS) или локальная звуковая карта.">
-                <option value="stream">Поток (Icecast/HLS)</option>
-                <option value="soundcard">Звуковая карта</option>
-            </select>
+        <div class="dialog-tabs">
+            <button type="button" class="dialog-tab @(_activeTab == Tab.Input ? "dialog-tab-active" : "")" @onclick="() => _activeTab = Tab.Input">@Loc["channelEdit.tabInput"]</button>
+            <button type="button" class="dialog-tab @(_activeTab == Tab.Output ? "dialog-tab-active" : "")" @onclick="() => _activeTab = Tab.Output">@Loc["channelEdit.tabOutput"]</button>
+            <button type="button" class="dialog-tab @(_activeTab == Tab.Silence ? "dialog-tab-active" : "")" @onclick="() => _activeTab = Tab.Silence">@Loc["channelEdit.tabSilence"]</button>
+        </div>
 
-            @if (_draft.Source.Type == "stream")
-            {
-                <label title="Адрес аудиопотока (Icecast/HLS плейлист).">URL потока</label>
-                <input @bind="_draft.Source.Url" title="Адрес аудиопотока (Icecast/HLS плейлист)." />
-
-                <label title="Формат потока: Icecast, Icecast с MP3, или HLS (плейлист .m3u8).">Тип потока</label>
-                <select @bind="_draft.Source.StreamType" title="Формат потока: Icecast, Icecast с MP3, или HLS (плейлист .m3u8).">
-                    <option value="icecast">Icecast</option>
-                    <option value="icecast_mp3">Icecast (MP3)</option>
-                    <option value="hls">HLS</option>
+        @if (_activeTab == Tab.Input)
+        {
+            <div class="form-grid">
+                <label title="@Loc["channelEdit.sourceTypeTitle"]">@Loc["channelEdit.sourceTypeLabel"]</label>
+                <select @bind="_draft.Source.Type" @bind:after="OnSourceTypeChanged" title="@Loc["channelEdit.sourceTypeTitle"]">
+                    <option value="stream">@Loc["channelEdit.sourceTypeStream"]</option>
+                    <option value="soundcard">@Loc["channelEdit.sourceTypeSoundcard"]</option>
                 </select>
 
-                @if (_draft.Source.StreamType == "hls")
+                @if (_draft.Source.Type == "stream")
                 {
-                    <label title="Если в HLS-плейлисте несколько аудиодорожек/битрейтов — индекс нужной (0 — первая).">Индекс аудиодорожки HLS</label>
-                    <input type="number" @bind="_draft.Source.HlsBitrateIndex" title="Если в HLS-плейлисте несколько аудиодорожек/битрейтов — индекс нужной (0 — первая)." />
-                }
+                    <label title="@Loc["channelEdit.streamUrlTitle"]">@Loc["channelEdit.streamUrlLabel"]</label>
+                    <input @bind="_draft.Source.Url" title="@Loc["channelEdit.streamUrlTitle"]" />
 
-                <label title="Разрешить подключение по обычному HTTP, если поток не поддерживает HTTPS.">Доступ по HTTP (не HTTPS)</label>
-                <input type="checkbox" @bind="_draft.Source.AllowHttp" title="Разрешить подключение по обычному HTTP, если поток не поддерживает HTTPS." />
-
-                <label title="Не проверять валидность SSL-сертификата сервера (для потоков с самоподписанным/просроченным сертификатом).">Разрешить неверный SSL-сертификат</label>
-                <input type="checkbox" @bind="_draft.Source.AllowInvalidSsl" title="Не проверять валидность SSL-сертификата сервера (для потоков с самоподписанным/просроченным сертификатом)." />
-
-                <label title="Режим метаданных потока: пусто — не собирать, «icy» — встроенные ICY-метаданные Icecast, любое другое значение — обнаруженный JSON-эндпоинт метаданных HLS. Можно ввести вручную или подставить кнопкой справа.">URL метаданных / режим</label>
-                <div class="input-with-button">
-                    <input @bind="_draft.Source.MetadataUrl" placeholder="icy, JSON-эндпоинт, или пусто"
-                           title="Режим метаданных потока: пусто — не собирать, «icy» — встроенные ICY-метаданные Icecast, любое другое значение — обнаруженный JSON-эндпоинт метаданных HLS. Можно ввести вручную или подставить кнопкой справа." />
-                    <button type="button" class="btn btn-small" @onclick="DetectMetadata" disabled="@_detectingMetadata"
-                            title="Определить наличие метаданных (название трека) по текущим настройкам URL/типа потока — результат подставится в поле слева">
-                        @(_detectingMetadata ? "Проверка…" : "Определить")
-                    </button>
-                </div>
-                @if (_metadataStatusText is not null)
-                {
-                    <label></label>
-                    <div class="@_metadataStatusClass">@_metadataStatusText</div>
-                }
-            }
-            else
-            {
-                <label title="Список звуковых устройств записи, обнаруженных в системе сейчас. Выбор подставляет имя и UID устройства ниже.">Устройство записи</label>
-                <div class="input-with-button">
-                    <select value="@_draft.Source.DeviceUid" @onchange="OnDeviceSelected"
-                            title="Список звуковых устройств записи, обнаруженных в системе сейчас. Выбор подставляет имя и UID устройства ниже.">
-                        <option value="">— выбрать из списка —</option>
-                        @foreach (var d in _devices)
-                        {
-                            <option value="@d.Id">@d.Name@(d.IsDefault ? " (по умолчанию)" : "")@(d.IsEnabled ? "" : " (отключено)")</option>
-                        }
-                        @if (!string.IsNullOrEmpty(_draft.Source.DeviceUid) && !_devices.Any(d => d.Id == _draft.Source.DeviceUid))
-                        {
-                            <option value="@_draft.Source.DeviceUid">Текущее (не обнаружено сейчас): @(string.IsNullOrEmpty(_draft.Source.DeviceName) ? _draft.Source.DeviceUid : _draft.Source.DeviceName)</option>
-                        }
+                    <label title="@Loc["channelEdit.streamTypeTitle"]">@Loc["channelEdit.streamTypeLabel"]</label>
+                    <select @bind="_draft.Source.StreamType" title="@Loc["channelEdit.streamTypeTitle"]">
+                        <option value="icecast">@Loc["channelEdit.streamTypeIcecast"]</option>
+                        <option value="icecast_mp3">@Loc["channelEdit.streamTypeIcecastMp3"]</option>
+                        <option value="hls">@Loc["channelEdit.streamTypeHls"]</option>
                     </select>
-                    <button type="button" class="btn btn-small" @onclick="RefreshDevices" title="Обновить список устройств (например, после подключения USB-микрофона)">🔄 Обновить</button>
-                </div>
-                @if (_deviceListError is not null)
-                {
-                    <label></label>
-                    <div class="form-error">@_deviceListError</div>
-                }
 
-                <label title="Уникальный идентификатор устройства — используется для сопоставления в первую очередь и устойчив к смене индекса устройства при переподключении USB.">Устройство (UID)</label>
-                <input @bind="_draft.Source.DeviceUid" title="Уникальный идентификатор устройства — используется для сопоставления в первую очередь и устойчив к смене индекса устройства при переподключении USB." />
+                    @if (_draft.Source.StreamType == "hls")
+                    {
+                        <label title="@Loc["channelEdit.hlsIndexTitle"]">@Loc["channelEdit.hlsIndexLabel"]</label>
+                        <input type="number" @bind="_draft.Source.HlsBitrateIndex" title="@Loc["channelEdit.hlsIndexTitle"]" />
+                    }
 
-                <label title="Отображаемое имя устройства — подставляется автоматически при выборе из списка выше; используется для поиска, только если UID не задан.">Устройство (имя)</label>
-                <input @bind="_draft.Source.DeviceName" title="Отображаемое имя устройства — подставляется автоматически при выборе из списка выше; используется для поиска, только если UID не задан." />
-            }
+                    <label title="@Loc["channelEdit.allowHttpTitle"]">@Loc["channelEdit.allowHttpLabel"]</label>
+                    <input type="checkbox" @bind="_draft.Source.AllowHttp" title="@Loc["channelEdit.allowHttpTitle"]" />
 
-            <label title="Пауза перед повторной попыткой подключения после обрыва, в секундах.">Задержка переподключения, с</label>
-            <input type="number" @bind="_draft.Source.ReconnectDelaySeconds" title="Пауза перед повторной попыткой подключения после обрыва, в секундах." />
+                    <label title="@Loc["channelEdit.allowInvalidSslTitle"]">@Loc["channelEdit.allowInvalidSslLabel"]</label>
+                    <input type="checkbox" @bind="_draft.Source.AllowInvalidSsl" title="@Loc["channelEdit.allowInvalidSslTitle"]" />
 
-            <label title="Папка на диске или сетевой путь, куда будут сохраняться аудиофайлы этого канала. Создаётся автоматически, если ещё не существует.">Папка сохранения</label>
-            <div class="input-with-button">
-                <input @bind="_draft.SavePath" title="Папка на диске или сетевой путь, куда будут сохраняться аудиофайлы этого канала. Создаётся автоматически, если ещё не существует." />
-                <button type="button" class="btn btn-small" @onclick="OpenFolderBrowser" title="Выбрать папку на диске сервера, где выполняется служба Quince.Service">Обзор…</button>
-            </div>
-
-            <label title="Шаблон имени подпапки по дате записи, например YYYY-MM-DD.">Формат папки по дате</label>
-            <input @bind="_draft.DateFolderFormat" title="Шаблон имени подпапки по дате записи, например YYYY-MM-DD." />
-
-            <label title="Шаблон имени файла записи, например hh-mm-ss.">Формат имени файла</label>
-            <input @bind="_draft.FileNameFormat" title="Шаблон имени файла записи, например hh-mm-ss." />
-
-            <label title="Через сколько минут текущий файл записи закрывается и начинается новый.">Длительность файла, мин</label>
-            <input type="number" @bind="_draft.FileDurationMinutes" title="Через сколько минут текущий файл записи закрывается и начинается новый." />
-
-            <label title="Через сколько дней старые записи этого канала удаляются автоматически (0 — не удалять).">Хранить записи, дней</label>
-            <input type="number" @bind="_draft.RetentionDays" title="Через сколько дней старые записи этого канала удаляются автоматически (0 — не удалять)." />
-
-            <label title="Если выключено — канал только показывает индикаторы уровня, без сохранения на диск.">Вести запись</label>
-            <input type="checkbox" @bind="_draft.RecordAudio" title="Если выключено — канал только показывает индикаторы уровня, без сохранения на диск." />
-
-            <label title="Начинать запись автоматически при старте службы (и сразу после создания/появления канала).">Автозапуск при старте службы</label>
-            <input type="checkbox" @bind="_draft.AutoStart" title="Начинать запись автоматически при старте службы (и сразу после создания/появления канала)." />
-
-            <label title="«Как во входном потоке» — формат вывода не задаётся отдельно; «Заданный ниже» — открывает настройки формата файла/битрейта/частоты/каналов.">Режим формата вывода</label>
-            <select @bind="_draft.OutputFormat.Mode" title="«Как во входном потоке» — формат вывода не задаётся отдельно; «Заданный ниже» — открывает настройки формата файла/битрейта/частоты/каналов.">
-                <option value="original">Как во входном потоке</option>
-                <option value="custom">Заданный ниже</option>
-            </select>
-
-            @if (_draft.OutputFormat.Mode == "original")
-            {
-                <label></label>
-                <div class="form-hint-neutral">Будет сохранено как: @OriginalModeResolvedFormat</div>
-            }
-
-            @if (_draft.OutputFormat.Mode == "custom")
-            {
-                <label title="Формат сохраняемых аудиофайлов.">Формат файла</label>
-                <select @bind="_draft.OutputFormat.FileFormat" title="Формат сохраняемых аудиофайлов.">
-                    <option value="mp3">MP3</option>
-                    <option value="aac">AAC</option>
-                    <option value="wav">WAV</option>
-                </select>
-
-                @if (_draft.OutputFormat.FileFormat is "mp3" or "aac")
-                {
-                    <label title="Битрейт кодирования для MP3/AAC, кбит/с.">Битрейт, кбит/с</label>
-                    <select @bind="_draft.OutputFormat.BitrateKbps" title="Битрейт кодирования для MP3/AAC, кбит/с.">
-                        @foreach (var kbps in BitrateOptions)
-                        {
-                            <option value="@kbps">@kbps</option>
-                        }
-                    </select>
+                    <label title="@Loc["channelEdit.metadataUrlTitle"]">@Loc["channelEdit.metadataUrlLabel"]</label>
+                    <div class="input-with-button">
+                        <input @bind="_draft.Source.MetadataUrl" placeholder="@Loc["channelEdit.metadataUrlPlaceholder"]"
+                               title="@Loc["channelEdit.metadataUrlTitle"]" />
+                        <button type="button" class="btn btn-small" @onclick="DetectMetadata" disabled="@_detectingMetadata"
+                                title="@Loc["channelEdit.detectButtonTitle"]">
+                            @(_detectingMetadata ? Loc["channelEdit.checking"] : Loc["channelEdit.detect"])
+                        </button>
+                    </div>
+                    @if (_metadataStatusText is not null)
+                    {
+                        <label></label>
+                        <div class="@_metadataStatusClass">@_metadataStatusText</div>
+                    }
                 }
                 else
                 {
-                    <label title="Разрядность сэмплов для WAV.">Разрядность, бит</label>
-                    <select @bind="_draft.OutputFormat.BitDepth" title="Разрядность сэмплов для WAV.">
-                        <option value="16">16</option>
-                        <option value="24">24</option>
-                    </select>
+                    <label title="@Loc["channelEdit.deviceTitle"]">@Loc["channelEdit.deviceLabel"]</label>
+                    <div class="input-with-button">
+                        <select value="@_draft.Source.DeviceUid" @onchange="OnDeviceSelected"
+                                title="@Loc["channelEdit.deviceTitle"]">
+                            <option value="">@Loc["channelEdit.deviceChoose"]</option>
+                            @foreach (var d in _devices)
+                            {
+                                <option value="@d.Id">@d.Name@(d.IsDefault ? Loc["channelEdit.deviceDefaultSuffix"] : "")@(d.IsEnabled ? "" : Loc["channelEdit.deviceDisabledSuffix"])</option>
+                            }
+                            @if (!string.IsNullOrEmpty(_draft.Source.DeviceUid) && !_devices.Any(d => d.Id == _draft.Source.DeviceUid))
+                            {
+                                <option value="@_draft.Source.DeviceUid">@Loc.T("channelEdit.deviceCurrentUnknown", string.IsNullOrEmpty(_draft.Source.DeviceName) ? _draft.Source.DeviceUid : _draft.Source.DeviceName)</option>
+                            }
+                        </select>
+                        <button type="button" class="btn btn-small" @onclick="RefreshDevices" title="@Loc["channelEdit.refreshDevicesTitle"]">@Loc["common.refresh"]</button>
+                    </div>
+                    @if (_deviceListError is not null)
+                    {
+                        <label></label>
+                        <div class="form-error">@_deviceListError</div>
+                    }
+
+                    <label title="@Loc["channelEdit.deviceUidTitle"]">@Loc["channelEdit.deviceUidLabel"]</label>
+                    <input @bind="_draft.Source.DeviceUid" title="@Loc["channelEdit.deviceUidTitle"]" />
+
+                    <label title="@Loc["channelEdit.deviceNameTitle"]">@Loc["channelEdit.deviceNameLabel"]</label>
+                    <input @bind="_draft.Source.DeviceName" title="@Loc["channelEdit.deviceNameTitle"]" />
+                }
+            </div>
+        }
+
+        @if (_activeTab == Tab.Output)
+        {
+            <div class="form-grid">
+                <label title="@Loc["channelEdit.savePathTitle"]">@Loc["channelEdit.savePathLabel"]</label>
+                <div class="input-with-button">
+                    <input @bind="_draft.SavePath" title="@Loc["channelEdit.savePathTitle"]" />
+                    <button type="button" class="btn btn-small" @onclick="OpenFolderBrowser" title="@Loc["channelEdit.browseTitle"]">@Loc["channelEdit.browse"]</button>
+                </div>
+
+                <label title="@Loc["channelEdit.dateFolderTitle"]">@Loc["channelEdit.dateFolderLabel"]</label>
+                <input @bind="_draft.DateFolderFormat" title="@Loc["channelEdit.dateFolderTitle"]" />
+
+                <label title="@Loc["channelEdit.fileNameFormatTitle"]">@Loc["channelEdit.fileNameFormatLabel"]</label>
+                <input @bind="_draft.FileNameFormat" title="@Loc["channelEdit.fileNameFormatTitle"]" />
+
+                <label title="@Loc["channelEdit.fileDurationTitle"]">@Loc["channelEdit.fileDurationLabel"]</label>
+                <input type="number" @bind="_draft.FileDurationMinutes" title="@Loc["channelEdit.fileDurationTitle"]" />
+
+                <label title="@Loc["channelEdit.retentionTitle"]">@Loc["channelEdit.retentionLabel"]</label>
+                <input type="number" @bind="_draft.RetentionDays" title="@Loc["channelEdit.retentionTitle"]" />
+
+                <label title="@Loc["channelEdit.recordAudioTitle"]">@Loc["channelEdit.recordAudioLabel"]</label>
+                <input type="checkbox" @bind="_draft.RecordAudio" title="@Loc["channelEdit.recordAudioTitle"]" />
+
+                <label title="@Loc["channelEdit.autoStartTitle"]">@Loc["channelEdit.autoStartLabel"]</label>
+                <input type="checkbox" @bind="_draft.AutoStart" title="@Loc["channelEdit.autoStartTitle"]" />
+
+                <label title="@Loc["channelEdit.outputModeTitle"]">@Loc["channelEdit.outputModeLabel"]</label>
+                <select @bind="_draft.OutputFormat.Mode" title="@Loc["channelEdit.outputModeTitle"]">
+                    <option value="original">@Loc["channelEdit.outputModeOriginal"]</option>
+                    <option value="custom">@Loc["channelEdit.outputModeCustom"]</option>
+                </select>
+
+                @if (_draft.OutputFormat.Mode == "original")
+                {
+                    <label></label>
+                    <div class="form-hint-neutral">@Loc.T("channelEdit.willBeSavedAs", OriginalModeResolvedFormat)</div>
                 }
 
-                <label title="Частота дискретизации выходного файла, Гц.">Частота дискретизации, Гц</label>
-                <select @bind="_draft.OutputFormat.SampleRate" title="Частота дискретизации выходного файла, Гц.">
-                    @foreach (var rate in SampleRateOptions)
+                @if (_draft.OutputFormat.Mode == "custom")
+                {
+                    <label title="@Loc["channelEdit.fileFormatTitle"]">@Loc["channelEdit.fileFormatLabel"]</label>
+                    <select @bind="_draft.OutputFormat.FileFormat" title="@Loc["channelEdit.fileFormatTitle"]">
+                        <option value="mp3">MP3</option>
+                        <option value="aac">AAC</option>
+                        <option value="wav">WAV</option>
+                    </select>
+
+                    @if (_draft.OutputFormat.FileFormat is "mp3" or "aac")
                     {
-                        <option value="@rate">@rate</option>
+                        <label title="@Loc["channelEdit.bitrateTitle"]">@Loc["channelEdit.bitrateLabel"]</label>
+                        <select @bind="_draft.OutputFormat.BitrateKbps" title="@Loc["channelEdit.bitrateTitle"]">
+                            @foreach (var kbps in BitrateOptions)
+                            {
+                                <option value="@kbps">@kbps</option>
+                            }
+                        </select>
                     }
-                </select>
+                    else
+                    {
+                        <label title="@Loc["channelEdit.bitDepthTitle"]">@Loc["channelEdit.bitDepthLabel"]</label>
+                        <select @bind="_draft.OutputFormat.BitDepth" title="@Loc["channelEdit.bitDepthTitle"]">
+                            <option value="16">16</option>
+                            <option value="24">24</option>
+                        </select>
+                    }
 
-                <label title="Число каналов выходного файла.">Число каналов</label>
-                <select @bind="_draft.OutputFormat.Channels" title="Число каналов выходного файла.">
-                    <option value="1">Моно</option>
-                    <option value="2">Стерео</option>
-                </select>
-            }
+                    <label title="@Loc["channelEdit.sampleRateTitle"]">@Loc["channelEdit.sampleRateLabel"]</label>
+                    <select @bind="_draft.OutputFormat.SampleRate" title="@Loc["channelEdit.sampleRateTitle"]">
+                        @foreach (var rate in SampleRateOptions)
+                        {
+                            <option value="@rate">@rate</option>
+                        }
+                    </select>
 
-            <label title="Приостанавливать индикацию активности при затяжной тишине во входном сигнале.">Детектор тишины</label>
-            <input type="checkbox" @bind="_draft.SilenceDetector.Enabled" title="Приостанавливать индикацию активности при затяжной тишине во входном сигнале." />
+                    <label title="@Loc["channelEdit.channelsTitle"]">@Loc["channelEdit.channelsLabel"]</label>
+                    <select @bind="_draft.OutputFormat.Channels" title="@Loc["channelEdit.channelsTitle"]">
+                        <option value="1">@Loc["channelEdit.channelsMono"]</option>
+                        <option value="2">@Loc["channelEdit.channelsStereo"]</option>
+                    </select>
+                }
+            </div>
+        }
 
-            @if (_draft.SilenceDetector.Enabled)
-            {
-                <label title="Уровень громкости, ниже которого сигнал считается тишиной, dBFS.">Порог, dBFS</label>
-                <input type="number" step="0.1" @bind="_draft.SilenceDetector.ThresholdDbfs" title="Уровень громкости, ниже которого сигнал считается тишиной, dBFS." />
+        @if (_activeTab == Tab.Silence)
+        {
+            <div class="form-grid">
+                <label title="@Loc["channelEdit.silenceDetectorTitle"]">@Loc["channelEdit.silenceDetectorLabel"]</label>
+                <input type="checkbox" @bind="_draft.SilenceDetector.Enabled" title="@Loc["channelEdit.silenceDetectorTitle"]" />
 
-                <label title="Через сколько секунд непрерывной тишины сработает детектор.">Срабатывание через, с</label>
-                <input type="number" step="0.1" @bind="_draft.SilenceDetector.TriggerSeconds" title="Через сколько секунд непрерывной тишины сработает детектор." />
+                @if (_draft.SilenceDetector.Enabled)
+                {
+                    <label title="@Loc["channelEdit.thresholdTitle"]">@Loc["channelEdit.thresholdLabel"]</label>
+                    <input type="number" step="0.1" @bind="_draft.SilenceDetector.ThresholdDbfs" title="@Loc["channelEdit.thresholdTitle"]" />
 
-                <label title="Через сколько секунд звука после тишины детектор снимет флаг тишины.">Возобновление через, с</label>
-                <input type="number" step="0.1" @bind="_draft.SilenceDetector.ResumeSeconds" title="Через сколько секунд звука после тишины детектор снимет флаг тишины." />
-            }
-        </div>
+                    <label title="@Loc["channelEdit.triggerTitle"]">@Loc["channelEdit.triggerLabel"]</label>
+                    <input type="number" step="0.1" @bind="_draft.SilenceDetector.TriggerSeconds" title="@Loc["channelEdit.triggerTitle"]" />
+
+                    <label title="@Loc["channelEdit.resumeTitle"]">@Loc["channelEdit.resumeLabel"]</label>
+                    <input type="number" step="0.1" @bind="_draft.SilenceDetector.ResumeSeconds" title="@Loc["channelEdit.resumeTitle"]" />
+                }
+            </div>
+        }
 
         <div class="form-actions">
-            <button class="btn btn-small" @onclick="Close" disabled="@_saving">Отмена</button>
-            <button class="btn btn-start" @onclick="Save" disabled="@_saving">@(_saving ? "Проверка папки…" : "Сохранить")</button>
+            <button class="btn btn-small" @onclick="Close" disabled="@_saving">@Loc["common.cancel"]</button>
+            <button class="btn btn-start" @onclick="Save" disabled="@_saving">@(_saving ? Loc["channelEdit.saving"] : Loc["common.save"])</button>
         </div>
     </div>
 </div>
@@ -210,11 +229,14 @@
     private static readonly int[] BitrateOptions = { 32, 48, 64, 96, 128, 256, 320 };
     private static readonly int[] SampleRateOptions = { 8000, 11025, 22050, 32000, 44100, 48000, 96000 };
 
+    private enum Tab { Input, Output, Silence }
+
     private ChannelConfig _draft = new();
     private bool _isCreate;
     private string? _error;
     private bool _saving;
     private bool _browsingFolder;
+    private Tab _activeTab = Tab.Input;
 
     private List<SoundcardCapture.RecordDeviceInfo> _devices = new();
     private string? _deviceListError;
@@ -265,12 +287,12 @@
         catch (System.Runtime.InteropServices.COMException ex)
         {
             _devices = new();
-            _deviceListError = $"Не удалось опросить аудиоподсистему Windows (проверьте, что служба \"Windows Audio\" запущена): {ex.Message}";
+            _deviceListError = Loc.T("channelEdit.errorDeviceListWindows", ex.Message);
         }
         catch (Exception ex)
         {
             _devices = new();
-            _deviceListError = $"Не удалось получить список устройств записи: {ex.Message}";
+            _deviceListError = Loc.T("channelEdit.errorDeviceListGeneric", ex.Message);
         }
     }
 
@@ -291,12 +313,12 @@
         var value = _draft.Source.MetadataUrl;
         if (value == "icy")
         {
-            _metadataStatusText = "✓ ICY (Icecast)";
+            _metadataStatusText = Loc["channelEdit.metadataOkIcy"];
             _metadataStatusClass = "form-hint-ok";
         }
         else if (!string.IsNullOrEmpty(value))
         {
-            _metadataStatusText = $"✓ JSON: {value}";
+            _metadataStatusText = Loc.T("channelEdit.metadataOkJson", value);
             _metadataStatusClass = "form-hint-ok";
         }
         else
@@ -309,13 +331,13 @@
     {
         if (string.IsNullOrWhiteSpace(_draft.Source.Url))
         {
-            _metadataStatusText = "⚠ Введите URL потока";
+            _metadataStatusText = Loc["channelEdit.metadataEnterUrl"];
             _metadataStatusClass = "form-hint-warn";
             return;
         }
 
         _detectingMetadata = true;
-        _metadataStatusText = "Проверка…";
+        _metadataStatusText = Loc["channelEdit.checking"];
         _metadataStatusClass = "form-hint-neutral";
         StateHasChanged();
 
@@ -329,7 +351,7 @@
             var winner = await Task.WhenAny(detectTask, Task.Delay(TimeSpan.FromSeconds(12)));
             result = winner == detectTask
                 ? await detectTask
-                : new MetadataDetectionResult(false, "", "Превышено время ожидания.");
+                : new MetadataDetectionResult(false, "", Loc["channelEdit.metadataTimeout"]);
         }
         catch (Exception ex)
         {
@@ -343,13 +365,13 @@
         if (result.MetadataUrl == "icy")
         {
             _draft.Source.MetadataUrl = result.MetadataUrl;
-            _metadataStatusText = "✓ ICY (Icecast)";
+            _metadataStatusText = Loc["channelEdit.metadataOkIcy"];
             _metadataStatusClass = "form-hint-ok";
         }
         else if (!string.IsNullOrEmpty(result.MetadataUrl))
         {
             _draft.Source.MetadataUrl = result.MetadataUrl;
-            _metadataStatusText = $"✓ JSON: {result.MetadataUrl}";
+            _metadataStatusText = Loc.T("channelEdit.metadataOkJson", result.MetadataUrl);
             _metadataStatusClass = "form-hint-ok";
         }
         else
@@ -358,8 +380,8 @@
             // field untouched instead of clobbering it with an empty result (this used to wipe out
             // a manually-entered, working URL whenever a probe attempt came back empty/timed out).
             _metadataStatusText = string.IsNullOrEmpty(result.Warning)
-                ? "✗ Метаданные не найдены"
-                : $"✗ Метаданные не найдены: {result.Warning}";
+                ? Loc["channelEdit.metadataNotFound"]
+                : Loc.T("channelEdit.metadataNotFoundWithReason", result.Warning);
             _metadataStatusClass = "form-error";
         }
     }
@@ -370,26 +392,28 @@
 
         if (string.IsNullOrWhiteSpace(_draft.Name))
         {
-            _error = "Укажите название канала.";
+            _error = Loc["channelEdit.errorNameRequired"];
             return;
         }
 
         var excludeFilename = _isCreate ? null : UiState.EditTarget!.Filename;
         if (ChannelManager.NameExists(_draft.Name.Trim(), excludeFilename))
         {
-            _error = "Канал с таким названием уже существует.";
+            _error = Loc["channelEdit.errorNameExists"];
             return;
         }
 
         if (_draft.Source.Type == "stream" && string.IsNullOrWhiteSpace(_draft.Source.Url))
         {
-            _error = "Укажите URL потока.";
+            _error = Loc["channelEdit.errorUrlRequired"];
+            _activeTab = Tab.Input;
             return;
         }
 
         if (string.IsNullOrWhiteSpace(_draft.SavePath))
         {
-            _error = "Укажите папку сохранения записей.";
+            _error = Loc["channelEdit.errorSavePathRequired"];
+            _activeTab = Tab.Output;
             return;
         }
 
@@ -397,7 +421,10 @@
         try
         {
             if (!await ValidateSavePathAsync(_draft.SavePath))
+            {
+                _activeTab = Tab.Output;
                 return;
+            }
         }
         finally
         {
@@ -419,7 +446,7 @@
             // Blazor Server circuit (the browser then shows/forces a full reload) — e.g. if the
             // channel was deleted from another tab/menu action while this dialog was open. Surface
             // it as a normal form error instead.
-            _error = $"Не удалось сохранить канал: {ex.Message}";
+            _error = Loc.T("channelEdit.errorSaveFailed", ex.Message);
             return;
         }
 
@@ -440,7 +467,7 @@
             var completed = await Task.WhenAny(task, Task.Delay(TimeSpan.FromSeconds(5)));
             if (completed != task)
             {
-                _error = "Папка сохранения записей недоступна: превышено время ожидания (сетевой путь не отвечает).";
+                _error = Loc["channelEdit.errorSavePathTimeout"];
                 return false;
             }
             await task; // observe any exception
@@ -448,7 +475,7 @@
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NotSupportedException or ArgumentException)
         {
-            _error = $"Папка сохранения записей недоступна: {ex.Message}";
+            _error = Loc.T("channelEdit.errorSavePathUnavailable", ex.Message);
             return false;
         }
     }

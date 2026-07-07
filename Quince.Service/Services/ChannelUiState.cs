@@ -14,6 +14,7 @@ public class ChannelUiState
     public ChannelConfig? EditTarget { get; private set; } // null while EditDialogOpen => create mode
 
     public ChannelConfig? DeleteTarget { get; private set; }
+    public ChannelConfig? CloneTarget { get; private set; }
 
     public bool IndicatorsOpen { get; private set; }
     public string? IndicatorsChannelName { get; private set; }
@@ -67,6 +68,18 @@ public class ChannelUiState
     public void CloseDeleteChannel()
     {
         DeleteTarget = null;
+        Notify();
+    }
+
+    public void OpenCloneChannel(ChannelConfig config)
+    {
+        CloneTarget = config;
+        Notify();
+    }
+
+    public void CloseCloneChannel()
+    {
+        CloneTarget = null;
         Notify();
     }
 

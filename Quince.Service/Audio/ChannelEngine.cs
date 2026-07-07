@@ -12,6 +12,9 @@ public sealed class ChannelEngine
     private readonly Action<EngineStatus> _onStatusChange;
     private readonly Action<GoniometerFrame> _onGoniometerUpdate;
     private readonly Func<IReadOnlyList<string>>? _getAdKeywords;
+    private readonly Func<IReadOnlyList<string>>? _getNewsKeywords;
+    private readonly Func<int> _getReconnectDelaySeconds;
+    private readonly Func<int> _getReconnectMaxAttempts;
 
     private ChannelConfig _config;
     private IAudioCapture? _capture;
@@ -31,7 +34,9 @@ public sealed class ChannelEngine
 
     public ChannelEngine(ChannelConfig config, string ffmpegPath, string ffprobePath, ILoggerFactory loggerFactory,
         Action<LevelReading> onLevelUpdate, Action<EngineStatus> onStatusChange, Action<GoniometerFrame> onGoniometerUpdate,
-        Func<IReadOnlyList<string>>? getAdKeywords = null)
+        Func<IReadOnlyList<string>>? getAdKeywords = null,
+        Func<int>? getReconnectDelaySeconds = null, Func<int>? getReconnectMaxAttempts = null,
+        Func<IReadOnlyList<string>>? getNewsKeywords = null)
     {
         _config = config;
         _ffmpegPath = ffmpegPath;
@@ -41,6 +46,9 @@ public sealed class ChannelEngine
         _onStatusChange = onStatusChange;
         _onGoniometerUpdate = onGoniometerUpdate;
         _getAdKeywords = getAdKeywords;
+        _getReconnectDelaySeconds = getReconnectDelaySeconds ?? (() => 3);
+        _getReconnectMaxAttempts = getReconnectMaxAttempts ?? (() => 0);
+        _getNewsKeywords = getNewsKeywords;
     }
 
     public EngineStatus Status
@@ -62,11 +70,12 @@ public sealed class ChannelEngine
         using var scope = log.BeginScope(new Dictionary<string, object> { ["Channel"] = _config.Name });
 
         _capture = _config.Source.Type == "soundcard"
-            ? new SoundcardCapture(_config.Source, _config.Source.ReconnectDelaySeconds,
-                _loggerFactory.CreateLogger("SoundcardCapture"))
+            ? new SoundcardCapture(_config.Source, _getReconnectDelaySeconds, _getReconnectMaxAttempts,
+                _loggerFactory.CreateLogger("SoundcardCapture"), OnReconnectExhausted, _config.Name)
             : new StreamCapture(_ffmpegPath, _config.Source.Url, _config.Source.StreamType,
-                _config.Source.AllowInvalidSsl, _config.Source.HlsBitrateIndex, _config.Source.ReconnectDelaySeconds,
-                _loggerFactory.CreateLogger("StreamCapture"));
+                _config.Source.AllowInvalidSsl, _config.Source.HlsBitrateIndex,
+                _getReconnectDelaySeconds, _getReconnectMaxAttempts,
+                _loggerFactory.CreateLogger("StreamCapture"), OnReconnectExhausted, _config.Name);
 
         var meterReader = _capture.Subscribe("meter");
 
@@ -78,13 +87,13 @@ public sealed class ChannelEngine
         }
 
         _meter = new LevelMeter(meterReader, _capture.SampleRate, _capture.Channels, _onLevelUpdate,
-            _loggerFactory.CreateLogger("LevelMeter"), _onGoniometerUpdate);
+            _loggerFactory.CreateLogger("LevelMeter"), _onGoniometerUpdate, _config.Name);
 
         if (_config.SilenceDetector.Enabled)
         {
             var silenceReader = _capture.Subscribe("silence");
             _silence = new SilenceDetector(_config.SilenceDetector, silenceReader, OnSilence, OnSound,
-                _loggerFactory.CreateLogger("SilenceDetector"));
+                _loggerFactory.CreateLogger("SilenceDetector"), _config.Name);
         }
 
         try
@@ -120,10 +129,16 @@ public sealed class ChannelEngine
             _status = newStatus;
         }
         _onStatusChange(newStatus);
-        log.LogInformation("Запись начата");
+        log.LogInformation("[{Channel}] Запись начата", _config.Name);
     }
 
-    public void Stop()
+    public void Stop() => Stop(hasError: false);
+
+    /// <param name="hasError">Set when the caller is <see cref="OnReconnectExhausted"/> rather than
+    /// a deliberate user/UI stop — surfaces as <see cref="EngineStatus.HasError"/> so the UI can
+    /// distinguish "stopped on purpose" (grey) from "gave up after too many reconnect attempts"
+    /// (red) even though both end up with <c>IsRecording: false</c>.</param>
+    private void Stop(bool hasError)
     {
         var log = _loggerFactory.CreateLogger("ChannelEngine");
         using var scope = log.BeginScope(new Dictionary<string, object> { ["Channel"] = _config.Name });
@@ -145,11 +160,23 @@ public sealed class ChannelEngine
         EngineStatus newStatus;
         lock (_statusLock)
         {
-            newStatus = new EngineStatus(IsRecording: false);
+            newStatus = new EngineStatus(IsRecording: false, HasError: hasError);
             _status = newStatus;
         }
         _onStatusChange(newStatus);
-        log.LogInformation("Запись остановлена");
+        log.LogInformation("[{Channel}] Запись остановлена", _config.Name);
+    }
+
+    /// <summary>Fired by the capture backend, off its own loop thread, once it gives up after
+    /// exhausting the app's reconnect-attempt budget. Logs ERROR and stops the channel with
+    /// <see cref="EngineStatus.HasError"/> set — the channel stays stopped until the user (or
+    /// auto_start on the next app restart) starts it again.</summary>
+    private void OnReconnectExhausted()
+    {
+        var log = _loggerFactory.CreateLogger("ChannelEngine");
+        using var scope = log.BeginScope(new Dictionary<string, object> { ["Channel"] = _config.Name });
+        log.LogError("[{Channel}] Достигнут предел попыток переподключения — канал остановлен", _config.Name);
+        Stop(hasError: true);
     }
 
     public void UpdateConfig(ChannelConfig newConfig)
@@ -178,24 +205,24 @@ public sealed class ChannelEngine
         if (string.IsNullOrEmpty(metaUrl)) return;
 
         var metaLog = _loggerFactory.CreateLogger("Metadata");
-        _metadataWriter = new MetadataWriter(_config.SavePath, _config.MetadataPath, _getAdKeywords);
+        _metadataWriter = new MetadataWriter(_config.SavePath, _config.MetadataPath, _getAdKeywords, _getNewsKeywords);
 
         void OnMeta(MetadataEvent evt)
         {
             var parts = new List<string>();
             if (!string.IsNullOrEmpty(evt.Artist)) parts.Add(evt.Artist);
             parts.Add(string.IsNullOrEmpty(evt.Title) ? evt.Raw : evt.Title);
-            metaLog.LogInformation("Метаданные: {Title}", string.Join(" - ", parts));
+            metaLog.LogInformation("[{Channel}] Метаданные: {Title}", _config.Name, string.Join(" - ", parts));
             _metadataWriter?.OnMetadata(evt);
         }
 
         _metadataReader = metaUrl == "icy"
             ? new IcecastMetadataReader(_config.Source.Url, _config.Source.AllowInvalidSsl, OnMeta, _config.Name, metaLog)
-            : new HlsMetadataReader(_config.Source.Url, _config.Source.AllowInvalidSsl, OnMeta, _config.Name, _ffprobePath, metaLog);
+            : new HlsMetadataReader(_config.Source.Url, _config.Source.AllowInvalidSsl, OnMeta, _config.Name, _ffprobePath, metaLog, metaUrl);
 
         _metadataStartedAt = DateTimeOffset.UtcNow;
         _metadataReader.Start();
-        metaLog.LogInformation("Метаданные: запущен reader ({MetaUrl})", metaUrl);
+        metaLog.LogInformation("[{Channel}] Метаданные: запущен reader ({MetaUrl})", _config.Name, metaUrl);
     }
 
     /// <summary>null = no metadata URL configured (nothing to check); true = metadata detected;

@@ -32,7 +32,6 @@ public class SourceConfig
     public bool AllowHttp { get; set; } = false;
     public bool AllowInvalidSsl { get; set; } = false;
     public string MetadataUrl { get; set; } = "";
-    public int ReconnectDelaySeconds { get; set; } = 3;
 }
 
 public class InputFormatConfig

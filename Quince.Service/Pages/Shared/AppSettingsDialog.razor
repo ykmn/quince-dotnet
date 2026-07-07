@@ -2,13 +2,19 @@
 @using Quince.Service.Configuration
 @using Quince.Service.Services
 @inject AppSettingsService AppSettings
+@inject LocalizationService Loc
 
 <div class="modal-overlay" @onclick="Close">
     <div class="modal-box" @onclick:stopPropagation="true">
-        <h2>Настройки приложения</h2>
+        <h2>@Loc["appSettings.title"]</h2>
+
+        @if (!string.IsNullOrEmpty(_error))
+        {
+            <p class="form-error">@_error</p>
+        }
 
         <div class="form-grid">
-            <label>Уровень логирования</label>
+            <label>@Loc["appSettings.logLevelLabel"]</label>
             <select @bind="_draft.LogLevel">
                 <option value="DEBUG">DEBUG</option>
                 <option value="INFO">INFO</option>
@@ -16,54 +22,44 @@
                 <option value="ERROR">ERROR</option>
             </select>
 
-            <label>Хранить логи, дней</label>
+            <label>@Loc["appSettings.logRetentionLabel"]</label>
             <input type="number" @bind="_draft.LogRetentionDays" />
 
-            <label>Порог жёлтой зоны, dBFS</label>
+            <label title="@Loc["appSettings.reconnectDelayTitle"]">@Loc["appSettings.reconnectDelayLabel"]</label>
+            <input type="number" min="1" @bind="_draft.ReconnectDelaySeconds"
+                   title="@Loc["appSettings.reconnectDelayTitle"]" />
+
+            <label title="@Loc["appSettings.reconnectMaxTitle"]">@Loc["appSettings.reconnectMaxLabel"]</label>
+            <input type="number" min="0" @bind="_draft.ReconnectMaxAttempts"
+                   title="@Loc["appSettings.reconnectMaxTitle"]" />
+
+            <label>@Loc["appSettings.zoneYellowLabel"]</label>
             <input type="number" step="0.1" @bind="_draft.MeterColors.ZoneYellowDb" />
 
-            <label>Порог красной зоны, dBFS</label>
+            <label>@Loc["appSettings.zoneRedLabel"]</label>
             <input type="number" step="0.1" @bind="_draft.MeterColors.ZoneRedDb" />
 
-            <label>Цвет — зелёный</label>
+            <label>@Loc["appSettings.colorGreenLabel"]</label>
             <input type="color" @bind="_draft.MeterColors.ColorGreen" />
 
-            <label>Цвет — жёлтый</label>
+            <label>@Loc["appSettings.colorYellowLabel"]</label>
             <input type="color" @bind="_draft.MeterColors.ColorYellow" />
 
-            <label>Цвет — красный</label>
+            <label>@Loc["appSettings.colorRedLabel"]</label>
             <input type="color" @bind="_draft.MeterColors.ColorRed" />
 
-            <label title="Устройство, на которое воспроизводится канал по кнопке ▶ на карточке канала.">Аудиовыход для прослушивания</label>
-            <div class="input-with-button">
-                <select value="@_draft.OutputDeviceUid" @onchange="OnDeviceSelected"
-                        title="Устройство, на которое воспроизводится канал по кнопке ▶ на карточке канала.">
-                    <option value="">— по умолчанию —</option>
-                    @foreach (var d in _devices)
-                    {
-                        <option value="@d.Id">@d.Name@(d.IsDefault ? " (по умолчанию)" : "")</option>
-                    }
-                    @if (!string.IsNullOrEmpty(_draft.OutputDeviceUid) && !_devices.Any(d => d.Id == _draft.OutputDeviceUid))
-                    {
-                        <option value="@_draft.OutputDeviceUid">Текущее (не обнаружено сейчас)</option>
-                    }
-                </select>
-                <button type="button" class="btn btn-small" @onclick="RefreshDevices" title="Обновить список устройств воспроизведения">🔄 Обновить</button>
-            </div>
-            @if (_deviceListError is not null)
-            {
-                <label></label>
-                <div class="form-error">@_deviceListError</div>
-            }
+            <label title="@Loc["appSettings.adKeywordsTitle"]">@Loc["appSettings.adKeywordsLabel"]</label>
+            <input @bind="_adKeywordsText" placeholder="@Loc["appSettings.adKeywordsPlaceholder"]"
+                   title="@Loc["appSettings.adKeywordsTitle"]" />
 
-            <label title="Слова, при наличии которых в названии/исполнителе трека метаданные помечаются классом «C» (реклама) в CSV — независимо от регистра. Через запятую.">Слова-маркеры рекламы</label>
-            <input @bind="_adKeywordsText" placeholder="Реклама, Reklama, Commercial"
-                   title="Слова, при наличии которых в названии/исполнителе трека метаданные помечаются классом «C» (реклама) в CSV — независимо от регистра. Через запятую." />
+            <label title="@Loc["appSettings.newsKeywordsTitle"]">@Loc["appSettings.newsKeywordsLabel"]</label>
+            <input @bind="_newsKeywordsText" placeholder="@Loc["appSettings.newsKeywordsPlaceholder"]"
+                   title="@Loc["appSettings.newsKeywordsTitle"]" />
         </div>
 
         <div class="form-actions">
-            <button class="btn btn-small" @onclick="Close">Отмена</button>
-            <button class="btn btn-start" @onclick="Save">Сохранить</button>
+            <button class="btn btn-small" @onclick="Close">@Loc["common.cancel"]</button>
+            <button class="btn btn-start" @onclick="Save">@Loc["common.save"]</button>
         </div>
     </div>
 </div>
@@ -72,9 +68,9 @@
     [Parameter] public EventCallback OnClose { get; set; }
 
     private AppConfig _draft = new();
-    private List<Quince.Service.Audio.SoundcardCapture.RecordDeviceInfo> _devices = new();
-    private string? _deviceListError;
     private string _adKeywordsText = "";
+    private string _newsKeywordsText = "";
+    private string? _error;
 
     protected override void OnInitialized()
     {
@@ -83,6 +79,8 @@
         {
             LogLevel = current.LogLevel,
             LogRetentionDays = current.LogRetentionDays,
+            ReconnectDelaySeconds = current.ReconnectDelaySeconds,
+            ReconnectMaxAttempts = current.ReconnectMaxAttempts,
             MeterColors = new MeterColorsConfig
             {
                 ZoneYellowDb = current.MeterColors.ZoneYellowDb,
@@ -91,39 +89,34 @@
                 ColorYellow = current.MeterColors.ColorYellow,
                 ColorRed = current.MeterColors.ColorRed,
             },
-            OutputDeviceUid = current.OutputDeviceUid,
+            UiLanguage = current.UiLanguage,
         };
         _adKeywordsText = string.Join(", ", current.AdKeywords);
-        RefreshDevices();
+        _newsKeywordsText = string.Join(", ", current.NewsKeywords);
     }
-
-    private void RefreshDevices()
-    {
-        try
-        {
-            _devices = AudioPlaybackService.EnumerateDevices();
-            _deviceListError = null;
-        }
-        catch (System.Runtime.InteropServices.COMException ex)
-        {
-            _devices = new();
-            _deviceListError = $"Не удалось опросить аудиоподсистему Windows (проверьте, что служба \"Windows Audio\" запущена): {ex.Message}";
-        }
-        catch (Exception ex)
-        {
-            _devices = new();
-            _deviceListError = $"Не удалось получить список устройств воспроизведения: {ex.Message}";
-        }
-    }
-
-    private void OnDeviceSelected(ChangeEventArgs e) => _draft.OutputDeviceUid = e.Value?.ToString() ?? "";
 
     private void Save()
     {
         _draft.AdKeywords = _adKeywordsText
             .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
             .ToList();
-        AppSettings.Save(_draft);
+        _draft.NewsKeywords = _newsKeywordsText
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .ToList();
+
+        try
+        {
+            AppSettings.Save(_draft);
+        }
+        catch (Exception ex)
+        {
+            // An unhandled exception here would escape the event handler and take down the whole
+            // Blazor Server circuit (the browser then shows/forces a full reload) — same class of
+            // bug as ChannelEditDialog.Save(). Surface it as a normal form error instead.
+            _error = Loc.T("appSettings.errorSaveFailed", ex.Message);
+            return;
+        }
+
         Close();
     }
 

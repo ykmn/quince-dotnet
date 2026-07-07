@@ -1,9 +1,13 @@
+@using Markdig
+@using Quince.Service.Services
+@inject LocalizationService Loc
+
 <div class="modal-overlay" @onclick="Close">
     <div class="modal-box modal-box-wide" @onclick:stopPropagation="true">
         <h2>README.md</h2>
-        <pre class="readme-text">@_content</pre>
+        <div class="readme-content">@((MarkupString)_html)</div>
         <div class="form-actions">
-            <button class="btn btn-small" @onclick="Close">Закрыть</button>
+            <button class="btn btn-small" @onclick="Close">@Loc["common.close"]</button>
         </div>
     </div>
 </div>
@@ -11,19 +15,23 @@
 @code {
     [Parameter] public EventCallback OnClose { get; set; }
 
-    private string _content = "";
+    private static readonly MarkdownPipeline Pipeline = new MarkdownPipelineBuilder().UseAdvancedExtensions().Build();
+
+    private string _html = "";
 
     protected override void OnInitialized()
     {
         var path = Path.Combine(AppContext.BaseDirectory, "README.md");
+        string content;
         try
         {
-            _content = File.Exists(path) ? File.ReadAllText(path) : "Файл README.md не найден рядом с приложением.";
+            content = File.Exists(path) ? File.ReadAllText(path) : Loc["readme.notFound"];
         }
         catch (IOException ex)
         {
-            _content = $"Не удалось прочитать README.md: {ex.Message}";
+            content = Loc.T("readme.readError", ex.Message);
         }
+        _html = Markdown.ToHtml(content, Pipeline);
     }
 
     private void Close() => OnClose.InvokeAsync();

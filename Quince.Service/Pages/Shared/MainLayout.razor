@@ -3,36 +3,45 @@
 @inject ChannelManager ChannelManager
 @inject AudioEngineManager EngineManager
 @inject ChannelUiState UiState
+@inject LocalizationService Loc
+@inject AudioPlaybackService PlaybackService
 @inject Microsoft.Extensions.Hosting.IHostApplicationLifetime Lifetime
+@inject IJSRuntime JS
 @implements IDisposable
 
 <div class="topbar">
     <div class="app-brand">
-        <a class="app-brand-link" href="/" title="На главную (список каналов)">
+        <a class="app-brand-link" href="/" title="@Loc["topbar.homeTitle"]">
             <img src="icon.svg" width="64" height="64" alt="" />
             <span class="app-name">Айва</span>
         </a>
     </div>
     <div class="hamburger-wrap">
-        <button class="btn-hamburger" title="Меню" @onclick="ToggleMenu" @onclick:stopPropagation="true">☰</button>
+        <button class="btn-hamburger" title="@Loc["topbar.menuTitle"]" @onclick="ToggleMenu" @onclick:stopPropagation="true">☰</button>
         @if (_menuOpen)
         {
             <div class="menu-overlay" @onclick="CloseMenu"></div>
             <div class="hamburger-menu" @onclick:stopPropagation="true">
-                <button class="menu-item" title="Открыть форму создания нового канала записи" @onclick="NewChannel">➕ Новый канал записи…</button>
+                <button class="menu-item" title="@Loc["menu.newChannelTitle"]" @onclick="NewChannel">@Loc["menu.newChannel"]</button>
                 <div class="menu-sep"></div>
-                <button class="menu-item" title="Общие настройки приложения (уровень логирования, хранение логов, цвета шкал индикаторов)" @onclick="OpenSettings">⚙️ Настройки…</button>
+                <button class="menu-item" title="@Loc["menu.startAllTitle"]" @onclick="StartAll">@Loc["menu.startAll"]</button>
+                <button class="menu-item" title="@Loc["menu.stopAllTitle"]" @onclick="StopAll">@Loc["menu.stopAll"]</button>
                 <div class="menu-sep"></div>
-                <button class="menu-item" title="Пересканировать папку config/ и обновить список каналов без перезапуска приложения" @onclick="RefreshConfig">🔄 Обновить конфигурацию</button>
-                <button class="menu-item" title="Остановить все каналы и завершить процесс приложения" @onclick="AskRestart">🔁 Перезапуск приложения…</button>
+                <button class="menu-item" title="@Loc["menu.settingsTitle"]" @onclick="OpenSettings">@Loc["menu.settings"]</button>
                 <div class="menu-sep"></div>
-                <button class="menu-item" title="Начать запись для всех каналов, поддерживающих запись (тип «Поток» или «Звуковая карта»)" @onclick="StartAll">▶️ Запустить запись всех каналов</button>
-                <button class="menu-item" title="Остановить запись для всех активных каналов" @onclick="StopAll">⏹️ Остановить запись всех каналов</button>
+                <button class="menu-item" title="@Loc["menu.refreshConfigTitle"]" @onclick="RefreshConfig">@Loc["menu.refreshConfig"]</button>
+                <button class="menu-item" title="@Loc["menu.restartTitle"]" @onclick="AskRestart">@Loc["menu.restart"]</button>
                 <div class="menu-sep"></div>
-                <button class="menu-item" title="Открыть README.md текущей установки в отдельном окне" @onclick="OpenReadme">📄 Показать файл README.md</button>
+                <button class="menu-item" title="@Loc["menu.readmeTitle"]" @onclick="OpenReadme">@Loc["menu.readme"]</button>
                 <div class="menu-sep"></div>
-                <span class="menu-version" title="Текущая версия приложения">@_version</span>
-                <button class="menu-item" title="Информация о программе" @onclick="ShowAbout">ℹ️ О программе…</button>
+                <div class="menu-lang-row" title="@Loc["menu.languageTitle"]">
+                    <span class="menu-lang-icon">🌐</span>
+                    <button type="button" class="dialog-tab @(Loc.Language == "ru" ? "dialog-tab-active" : "")" @onclick='() => SetLanguage("ru")'>RU</button>
+                    <button type="button" class="dialog-tab @(Loc.Language == "en" ? "dialog-tab-active" : "")" @onclick='() => SetLanguage("en")'>EN</button>
+                </div>
+                <div class="menu-sep"></div>
+                <span class="menu-version" title="@Loc["menu.versionTitle"]">@_version</span>
+                <button class="menu-item" title="@Loc["menu.aboutTitle"]" @onclick="ShowAbout">@Loc["menu.about"]</button>
             </div>
         }
     </div>
@@ -52,10 +61,14 @@
 {
     <div class="modal-overlay" @onclick="CloseAbout">
         <div class="modal-box" @onclick:stopPropagation="true">
-            <h2>Айва (Quince)</h2>
-            <p>Многоканальный аудиологгер.</p>
-            <p>Версия: @_version</p>
-            <button class="btn btn-small" @onclick="CloseAbout">Закрыть</button>
+            <div class="about-header">
+                <img src="icon.svg" width="48" height="48" alt="" />
+                <h2>Айва (Quince)</h2>
+            </div>
+            <p>@Loc["about.subtitle"]</p>
+            <p>@Loc.T("about.version", _version)</p>
+            <p class="about-copyright">© 2026 Роман Ермаков — <a href="https://github.com/ykmn/quince-dotnet" target="_blank" rel="noopener">github.com/ykmn/quince-dotnet</a></p>
+            <button class="btn btn-small" @onclick="CloseAbout">@Loc["common.close"]</button>
         </div>
     </div>
 }
@@ -64,11 +77,11 @@
 {
     <div class="modal-overlay" @onclick="() => _confirmRestart = false">
         <div class="modal-box" @onclick:stopPropagation="true">
-            <h2>Перезапуск приложения</h2>
-            <p>Все каналы будут остановлены, приложение завершит работу. Если оно установлено как служба Windows с настроенным автоматическим восстановлением — служба перезапустится сама; при запуске через «dotnet run» его нужно будет запустить заново вручную.</p>
+            <h2>@Loc["restartConfirm.title"]</h2>
+            <p>@Loc["restartConfirm.body"]</p>
             <div class="form-actions">
-                <button class="btn btn-small" @onclick="() => _confirmRestart = false">Отмена</button>
-                <button class="btn btn-stop" @onclick="DoRestart">Перезапустить</button>
+                <button class="btn btn-small" @onclick="() => _confirmRestart = false">@Loc["common.cancel"]</button>
+                <button class="btn btn-stop" @onclick="DoRestart">@Loc["restartConfirm.confirm"]</button>
             </div>
         </div>
     </div>
@@ -84,6 +97,11 @@
     <DeleteChannelDialog Config="UiState.DeleteTarget" OnClose="UiState.CloseDeleteChannel" />
 }
 
+@if (UiState.CloneTarget is not null)
+{
+    <CloneChannelDialog Config="UiState.CloneTarget" OnClose="UiState.CloseCloneChannel" />
+}
+
 @if (UiState.SettingsOpen)
 {
     <AppSettingsDialog OnClose="UiState.CloseSettings" />
@@ -94,6 +112,8 @@
     <ReadmeDialog OnClose="UiState.CloseReadme" />
 }
 
+<audio id="quince-playback-audio" style="display:none"></audio>
+
 @code {
     private bool _menuOpen;
     private bool _aboutOpen;
@@ -103,12 +123,46 @@
     protected override void OnInitialized()
     {
         UiState.Changed += OnUiStateChanged;
+        Loc.Changed += OnUiStateChanged;
+        PlaybackService.Changed += OnPlaybackChanged;
     }
 
     private void OnUiStateChanged() => InvokeAsync(StateHasChanged);
 
+    /// <summary>Drives the hidden &lt;audio&gt; element via JS interop whenever the monitored
+    /// channel changes — the actual audio bytes come from <see cref="AudioStreamEndpoint"/>, this
+    /// just points the element at (or away from) that URL. Playback always goes to the browser's
+    /// current default output device (see playback.js for why device selection isn't available yet).</summary>
+    private void OnPlaybackChanged()
+    {
+        var channel = PlaybackService.PlayingChannel;
+        _ = InvokeAsync(async () =>
+        {
+            if (channel is null)
+                await JS.InvokeVoidAsync("quincePlayback.stop");
+            else
+                await JS.InvokeVoidAsync("quincePlayback.play", $"/api/playback/stream/{Uri.EscapeDataString(channel)}");
+        });
+    }
+
     private void ToggleMenu() => _menuOpen = !_menuOpen;
     private void CloseMenu() => _menuOpen = false;
+
+    private void SetLanguage(string language)
+    {
+        try
+        {
+            Loc.SetLanguage(language);
+        }
+        catch (Exception ex)
+        {
+            // Same class of bug as the comment in ChannelEditDialog.Save(): an unhandled exception
+            // here would escape the event handler and take down the whole Blazor Server circuit
+            // (forcing a full browser reload) instead of just failing this one menu click.
+            CloseMenu();
+            UiState.SetStatusMessage(Loc.T("status.languageSaveError", ex.Message));
+        }
+    }
 
     private void ShowAbout()
     {
@@ -135,8 +189,8 @@
         CloseMenu();
         var result = ChannelManager.Reload();
         UiState.SetStatusMessage(result.Error is not null
-            ? $"Ошибка обновления конфигурации: {result.Error}"
-            : $"Конфигурация обновлена: новых — {result.Added}, изменено — {result.Updated}, удалено — {result.Removed}.");
+            ? Loc.T("status.configRefreshError", result.Error)
+            : Loc.T("status.configRefreshed", result.Added, result.Updated, result.Removed));
     }
 
     private void AskRestart()
@@ -148,7 +202,7 @@
     private void DoRestart()
     {
         _confirmRestart = false;
-        UiState.SetStatusMessage("Перезапуск приложения…");
+        UiState.SetStatusMessage(Loc["status.restarting"]);
         Lifetime.StopApplication();
     }
 
@@ -156,14 +210,14 @@
     {
         CloseMenu();
         var (started, eligible) = EngineManager.StartAll();
-        UiState.SetStatusMessage($"Запущено каналов: {started} (подходящих: {eligible}).");
+        UiState.SetStatusMessage(Loc.T("status.startedAll", started, eligible));
     }
 
     private void StopAll()
     {
         CloseMenu();
         var stopped = EngineManager.StopAll();
-        UiState.SetStatusMessage($"Остановлено каналов: {stopped}.");
+        UiState.SetStatusMessage(Loc.T("status.stoppedAll", stopped));
     }
 
     private void OpenReadme()
@@ -175,5 +229,7 @@
     public void Dispose()
     {
         UiState.Changed -= OnUiStateChanged;
+        Loc.Changed -= OnUiStateChanged;
+        PlaybackService.Changed -= OnPlaybackChanged;
     }
 }

@@ -15,7 +15,7 @@ public class LevelMeterTests
         var meter = new LevelMeter(channel.Reader, sampleRate: 44100, channels: 1,
             onUpdate: r => received = r, log: NullLogger.Instance);
 
-        // 44100 * 0.2 = 8820 samples needed to cross the ~200ms update threshold.
+        // 44100 * 0.1 = 4410 samples needed to cross the ~100ms update threshold.
         var samples = new float[10000];
         for (var i = 0; i < samples.Length; i++) samples[i] = 1.0f;
         var chunk = new AudioChunk(samples, channels: 1);
