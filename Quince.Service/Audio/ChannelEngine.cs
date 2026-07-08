@@ -11,10 +11,13 @@ public sealed class ChannelEngine
     private readonly Action<LevelReading> _onLevelUpdate;
     private readonly Action<EngineStatus> _onStatusChange;
     private readonly Action<GoniometerFrame> _onGoniometerUpdate;
+    private readonly Action<string>? _onMetadataUpdate;
     private readonly Func<IReadOnlyList<string>>? _getAdKeywords;
     private readonly Func<IReadOnlyList<string>>? _getNewsKeywords;
     private readonly Func<int> _getReconnectDelaySeconds;
     private readonly Func<int> _getReconnectMaxAttempts;
+
+    private volatile string? _metadataText;
 
     private ChannelConfig _config;
     private IAudioCapture? _capture;
@@ -36,7 +39,8 @@ public sealed class ChannelEngine
         Action<LevelReading> onLevelUpdate, Action<EngineStatus> onStatusChange, Action<GoniometerFrame> onGoniometerUpdate,
         Func<IReadOnlyList<string>>? getAdKeywords = null,
         Func<int>? getReconnectDelaySeconds = null, Func<int>? getReconnectMaxAttempts = null,
-        Func<IReadOnlyList<string>>? getNewsKeywords = null)
+        Func<IReadOnlyList<string>>? getNewsKeywords = null,
+        Action<string>? onMetadataUpdate = null)
     {
         _config = config;
         _ffmpegPath = ffmpegPath;
@@ -49,6 +53,7 @@ public sealed class ChannelEngine
         _getReconnectDelaySeconds = getReconnectDelaySeconds ?? (() => 3);
         _getReconnectMaxAttempts = getReconnectMaxAttempts ?? (() => 0);
         _getNewsKeywords = getNewsKeywords;
+        _onMetadataUpdate = onMetadataUpdate;
     }
 
     public EngineStatus Status
@@ -56,6 +61,10 @@ public sealed class ChannelEngine
         get { lock (_statusLock) { return _status; } }
     }
     public ChannelConfig Config => _config;
+
+    /// <summary>Last "Artist - Title" (or raw string) detected by the metadata reader, or null if
+    /// none has been detected yet (or metadata isn't configured for this channel).</summary>
+    public string? MetadataText => _metadataText;
 
     /// <summary>Exposes the running channel's raw audio to an extra consumer (e.g. output monitoring
     /// playback) alongside the meter/writer/silence-detector consumers already subscribed internally.
@@ -129,7 +138,7 @@ public sealed class ChannelEngine
             _status = newStatus;
         }
         _onStatusChange(newStatus);
-        log.LogInformation("[{Channel}] Запись начата", _config.Name);
+        log.LogInformation("Запись начата");
     }
 
     public void Stop() => Stop(hasError: false);
@@ -150,6 +159,7 @@ public sealed class ChannelEngine
 
         _metadataReader?.Stop(); _metadataReader = null;
         _metadataStartedAt = null;
+        _metadataText = null;
         _metadataWriter?.Flush(); _metadataWriter = null;
         _silence?.Stop(); _silence = null;
         _meter?.Stop(); _meter = null;
@@ -164,7 +174,7 @@ public sealed class ChannelEngine
             _status = newStatus;
         }
         _onStatusChange(newStatus);
-        log.LogInformation("[{Channel}] Запись остановлена", _config.Name);
+        log.LogInformation("Запись остановлена");
     }
 
     /// <summary>Fired by the capture backend, off its own loop thread, once it gives up after
@@ -175,7 +185,7 @@ public sealed class ChannelEngine
     {
         var log = _loggerFactory.CreateLogger("ChannelEngine");
         using var scope = log.BeginScope(new Dictionary<string, object> { ["Channel"] = _config.Name });
-        log.LogError("[{Channel}] Достигнут предел попыток переподключения — канал остановлен", _config.Name);
+        log.LogError("Достигнут предел попыток переподключения — канал остановлен");
         Stop(hasError: true);
     }
 
@@ -212,7 +222,10 @@ public sealed class ChannelEngine
             var parts = new List<string>();
             if (!string.IsNullOrEmpty(evt.Artist)) parts.Add(evt.Artist);
             parts.Add(string.IsNullOrEmpty(evt.Title) ? evt.Raw : evt.Title);
-            metaLog.LogInformation("[{Channel}] Метаданные: {Title}", _config.Name, string.Join(" - ", parts));
+            var text = string.Join(" - ", parts);
+            metaLog.LogInformation("Метаданные: {Title}", text);
+            _metadataText = text;
+            _onMetadataUpdate?.Invoke(text);
             _metadataWriter?.OnMetadata(evt);
         }
 
@@ -222,7 +235,7 @@ public sealed class ChannelEngine
 
         _metadataStartedAt = DateTimeOffset.UtcNow;
         _metadataReader.Start();
-        metaLog.LogInformation("[{Channel}] Метаданные: запущен reader ({MetaUrl})", _config.Name, metaUrl);
+        metaLog.LogInformation("Метаданные: запущен reader ({MetaUrl})", metaUrl);
     }
 
     /// <summary>null = no metadata URL configured (nothing to check); true = metadata detected;

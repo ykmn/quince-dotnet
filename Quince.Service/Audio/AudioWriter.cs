@@ -46,7 +46,7 @@ public sealed class AudioWriter
         CleanupOldFiles();
         _cts = new CancellationTokenSource();
         _task = Task.Run(() => RunAsync(_cts.Token));
-        _log.LogInformation("[{Channel}] AudioWriter запущен", _config.Name);
+        _log.LogInformation("AudioWriter запущен");
     }
 
     public void Stop()
@@ -56,7 +56,7 @@ public sealed class AudioWriter
         _cts = null;
         _task = null;
         CloseProc();
-        _log.LogInformation("[{Channel}] AudioWriter остановлен", _config.Name);
+        _log.LogInformation("AudioWriter остановлен");
     }
 
     private async Task RunAsync(CancellationToken ct)
@@ -85,7 +85,7 @@ public sealed class AudioWriter
                     }
                     catch (Exception ex) when (ex is IOException or ObjectDisposedException)
                     {
-                        _log.LogError(ex, "[{Channel}] Ошибка записи в stdin ffmpeg", _config.Name);
+                        _log.LogError(ex, "Ошибка записи в stdin ffmpeg");
                         CloseProc(crashed: true);
                     }
                 }
@@ -108,7 +108,7 @@ public sealed class AudioWriter
             var oldPath = _currentFile;
             CloseProc();
             OpenProc(now);
-            _log.LogInformation("[{Channel}] Ротация: {Old} -> {New}", _config.Name, oldPath, _currentFile);
+            _log.LogInformation("Ротация: {Old} -> {New}", oldPath, _currentFile);
             if (dateRolled) CleanupOldFiles();
         }
     }
@@ -138,11 +138,11 @@ public sealed class AudioWriter
             _openDate = DateOnly.FromDateTime(now);
             _openTime = now;
             _nextBoundary = OutputPathPlanner.ComputeNextBoundary(now, _config.FileDurationMinutes * 60);
-            _log.LogInformation("[{Channel}] Открыт файл вывода: {Path} (следующая граница: {Boundary})", _config.Name, outPath, _nextBoundary);
+            _log.LogInformation("Открыт файл вывода: {Path} (следующая граница: {Boundary})", outPath, _nextBoundary);
         }
         catch (Win32Exception)
         {
-            _log.LogError("[{Channel}] ffmpeg не найден по пути {Path} — не удалось открыть файл {Out}", _config.Name, _ffmpegPath, outPath);
+            _log.LogError("ffmpeg не найден по пути {Path} — не удалось открыть файл {Out}", _ffmpegPath, outPath);
             _crashCooldownUntil = DateTime.Now.AddSeconds(5);
             _proc = null;
         }
@@ -160,7 +160,7 @@ public sealed class AudioWriter
         }
         catch (Exception ex)
         {
-            _log.LogWarning(ex, "[{Channel}] Ошибка закрытия процесса ffmpeg", _config.Name);
+            _log.LogWarning(ex, "Ошибка закрытия процесса ffmpeg");
             try { _proc.Kill(); } catch { }
         }
         finally
@@ -174,12 +174,12 @@ public sealed class AudioWriter
         {
             _crashCooldownUntil = DateTime.Now.AddSeconds(5);
             if (ageSec < 30)
-                _log.LogWarning("[{Channel}] Процесс вывода ffmpeg завершился через {Age:F1} с — пауза 5 с перед повторным открытием", _config.Name, ageSec);
+                _log.LogWarning("Процесс вывода ffmpeg завершился через {Age:F1} с — пауза 5 с перед повторным открытием", ageSec);
 
             string stderr;
             lock (_stderrLock) { stderr = _stderrBuffer.ToString(); }
             if (!string.IsNullOrWhiteSpace(stderr))
-                _log.LogError("[{Channel}] FFmpeg stderr: {Stderr}", _config.Name, stderr.Trim());
+                _log.LogError("FFmpeg stderr: {Stderr}", stderr.Trim());
         }
     }
 
@@ -192,7 +192,7 @@ public sealed class AudioWriter
             while ((line = await reader.ReadLineAsync()) != null)
             {
                 if (string.IsNullOrWhiteSpace(line)) continue;
-                _log.LogDebug("[{Channel}] ffmpeg (writer) stderr: {Line}", _config.Name, line);
+                _log.LogDebug("ffmpeg (writer) stderr: {Line}", line);
                 lock (_stderrLock)
                 {
                     _stderrBuffer.AppendLine(line);
@@ -204,7 +204,7 @@ public sealed class AudioWriter
         }
         catch (Exception ex)
         {
-            _log.LogDebug(ex, "[{Channel}] Ошибка чтения stderr ffmpeg (writer)", _config.Name);
+            _log.LogDebug(ex, "Ошибка чтения stderr ffmpeg (writer)");
         }
     }
 
@@ -264,8 +264,8 @@ public sealed class AudioWriter
 
             foreach (var file in Directory.EnumerateFiles(folder))
             {
-                try { File.Delete(file); _log.LogDebug("[{Channel}] Удалён старый файл: {File}", _config.Name, file); }
-                catch (IOException ex) { _log.LogWarning(ex, "[{Channel}] Не удалось удалить {File}", _config.Name, file); }
+                try { File.Delete(file); _log.LogDebug("Удалён старый файл: {File}", file); }
+                catch (IOException ex) { _log.LogWarning(ex, "Не удалось удалить {File}", file); }
             }
 
             try
@@ -273,7 +273,7 @@ public sealed class AudioWriter
                 if (!Directory.EnumerateFileSystemEntries(folder).Any())
                 {
                     Directory.Delete(folder);
-                    _log.LogDebug("[{Channel}] Удалена пустая папка: {Folder}", _config.Name, folder);
+                    _log.LogDebug("Удалена пустая папка: {Folder}", folder);
                 }
             }
             catch (IOException) { }

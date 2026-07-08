@@ -14,6 +14,15 @@ public sealed class StreamCapture : IAudioCapture
     private const int BytesPerSample = 4;
     private static readonly int ReadBytes = BlockFrames * Channels * BytesPerSample;
 
+    /// <summary>How long <see cref="ReadLoopAsync"/> tolerates ffmpeg producing zero stdout bytes
+    /// before treating the process as stalled and forcing a reconnect. Guards against ffmpeg
+    /// hanging on a stuck network read (most commonly seen on HLS, whose demuxer polls a live
+    /// playlist and fetches segments — a stalled playlist/segment fetch can block ffmpeg
+    /// indefinitely without it exiting or writing anything to stderr) — without this, the read loop
+    /// would just await forever: no exception, no process exit, so the existing reconnect logic
+    /// never triggers and level indicators silently freeze on their last value.</summary>
+    private static readonly TimeSpan StallTimeout = TimeSpan.FromSeconds(30);
+
     private readonly string _ffmpegPath;
     private readonly string _url;
     private readonly string _streamType;
@@ -109,11 +118,24 @@ public sealed class StreamCapture : IAudioCapture
 
     internal static string[] BuildFfmpegArgs(string url, string streamType, bool allowInvalidSsl, int hlsBitrateIndex, string userAgent)
     {
-        var args = new List<string> { "-hide_banner", "-loglevel", "error", "-fflags", "nobuffer" };
+        var args = new List<string> { "-hide_banner", "-loglevel", "error" };
+        var isHls = streamType == "hls";
+
+        // -fflags nobuffer minimizes latency by disabling ffmpeg's internal buffering — fine for
+        // Icecast (one continuous byte stream, nothing to smooth over), but for HLS it also removes
+        // any cushion against the natural once-per-segment-duration gap while ffmpeg waits for the
+        // next live segment to be published, which showed up live as periodic ~1-2.5s audio gaps
+        // tightly synchronized to each stream's segment duration (docs/HISTORY.md #56/#57) —
+        // affecting HLS channels only, never Icecast. Tried -http_persistent 1 first (#56, assuming
+        // a reconnect-per-segment cause) but that made the gaps WORSE (~4-4.5s) rather than better,
+        // ruling out "fresh connection per fetch" as the mechanism and pointing at the inherent
+        // segment-wait instead — reverted. This app is a 24/7 recorder, not a live-interactive
+        // player, so trading a bit of added latency for smoother HLS output is an easy call.
+        if (!isHls) args.AddRange(new[] { "-fflags", "nobuffer" });
+
         if (allowInvalidSsl) args.AddRange(new[] { "-tls_verify", "0" });
         args.AddRange(new[] { "-user_agent", userAgent });
 
-        var isHls = streamType == "hls";
         // Without -live_start_index -1, ffmpeg's HLS demuxer starts from the oldest segment still
         // in the live playlist window rather than the current live edge — for a typical few-segment
         // rolling window (segments a few seconds each) that means playback has to "catch up" through
@@ -144,7 +166,7 @@ public sealed class StreamCapture : IAudioCapture
         while (!ct.IsCancellationRequested)
         {
             _status = StreamStatus.Connecting;
-            _log.LogInformation("[{Channel}] Подключение к {Url} (попытка {Attempt})", _channelName, _url, _reconnectAttempt);
+            _log.LogInformation("Подключение к {Url} (попытка {Attempt})", _url, _reconnectAttempt);
 
             var ua = UserAgents.RandomDesktop();
             var args = BuildFfmpegArgs(_url, _streamType, _allowInvalidSsl, _hlsBitrateIndex, ua);
@@ -166,15 +188,19 @@ public sealed class StreamCapture : IAudioCapture
                 lock (_stderrLock) { _stderrBuffer.Clear(); }
                 _status = StreamStatus.Streaming;
                 if (_reconnectAttempt > 0)
-                    _log.LogInformation("[{Channel}] Переподключение к {Url} выполнено", _channelName, _url);
+                    _log.LogInformation("Переподключение к {Url} выполнено", _url);
                 _reconnectAttempt = 0;
 
                 var stderrDrainTask = DrainStderrAsync(process, ct);
                 await ReadLoopAsync(process, ct);
             }
+            catch (StreamStallException ex)
+            {
+                _log.LogWarning("Зависание ffmpeg: {Message} — перезапуск", ex.Message);
+            }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
-                _log.LogError(ex, "[{Channel}] Ошибка ffmpeg", _channelName);
+                _log.LogError(ex, "Ошибка ffmpeg");
             }
             finally
             {
@@ -193,14 +219,14 @@ public sealed class StreamCapture : IAudioCapture
             if (maxAttempts > 0 && _reconnectAttempt > maxAttempts)
             {
                 _status = StreamStatus.Error;
-                _log.LogError("[{Channel}] Превышен предел попыток переподключения ({Max}) — канал останавливается", _channelName, maxAttempts);
+                _log.LogError("Превышен предел попыток переподключения ({Max}) — канал останавливается", maxAttempts);
                 if (_onReconnectExhausted != null) _ = Task.Run(_onReconnectExhausted);
                 return;
             }
 
             _status = StreamStatus.Reconnecting;
             var delaySeconds = Math.Max(1, _getReconnectDelaySeconds());
-            _log.LogWarning("[{Channel}] Поток отключён. Попытка переподключения {Attempt} через {Delay}с", _channelName, _reconnectAttempt, delaySeconds);
+            _log.LogWarning("Поток отключён. Попытка переподключения {Attempt} через {Delay}с", _reconnectAttempt, delaySeconds);
             try { await Task.Delay(TimeSpan.FromSeconds(delaySeconds), ct); }
             catch (OperationCanceledException) { break; }
         }
@@ -212,13 +238,23 @@ public sealed class StreamCapture : IAudioCapture
     {
         var stream = process.StandardOutput.BaseStream;
         var buffer = new byte[ReadBytes];
+        using var stallCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
 
         while (!ct.IsCancellationRequested)
         {
             var totalRead = 0;
             while (totalRead < buffer.Length)
             {
-                var n = await stream.ReadAsync(buffer.AsMemory(totalRead, buffer.Length - totalRead), ct);
+                int n;
+                try
+                {
+                    stallCts.CancelAfter(StallTimeout);
+                    n = await stream.ReadAsync(buffer.AsMemory(totalRead, buffer.Length - totalRead), stallCts.Token);
+                }
+                catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+                {
+                    throw new StreamStallException($"ffmpeg не отдал ни байта дольше {StallTimeout.TotalSeconds:F0}с");
+                }
                 if (n == 0) break;
                 totalRead += n;
             }
@@ -238,7 +274,7 @@ public sealed class StreamCapture : IAudioCapture
             foreach (var (consumerId, writer) in consumers)
             {
                 if (!writer.TryWrite(chunk))
-                    _log.LogDebug("[{Channel}] Очередь подписчика '{Consumer}' переполнена — кадр отброшен ({Frames} фреймов)", _channelName, consumerId, nFrames);
+                    _log.LogDebug("Очередь подписчика '{Consumer}' переполнена — кадр отброшен ({Frames} фреймов)", consumerId, nFrames);
             }
         }
 
@@ -247,9 +283,9 @@ public sealed class StreamCapture : IAudioCapture
             string stderr;
             lock (_stderrLock) { stderr = _stderrBuffer.ToString(); }
             if (string.IsNullOrWhiteSpace(stderr))
-                _log.LogWarning("[{Channel}] FFmpeg завершился с кодом {Code}", _channelName, process.ExitCode);
+                _log.LogWarning("FFmpeg завершился с кодом {Code}", process.ExitCode);
             else
-                _log.LogWarning("[{Channel}] FFmpeg завершился с кодом {Code}. Stderr: {Stderr}", _channelName, process.ExitCode, stderr.Trim());
+                _log.LogWarning("FFmpeg завершился с кодом {Code}. Stderr: {Stderr}", process.ExitCode, stderr.Trim());
         }
     }
 
@@ -262,7 +298,7 @@ public sealed class StreamCapture : IAudioCapture
             while ((line = await reader.ReadLineAsync(ct)) != null)
             {
                 if (string.IsNullOrWhiteSpace(line)) continue;
-                _log.LogDebug("[{Channel}] ffmpeg stderr: {Line}", _channelName, line);
+                _log.LogDebug("ffmpeg stderr: {Line}", line);
                 lock (_stderrLock)
                 {
                     _stderrBuffer.AppendLine(line);
@@ -275,7 +311,12 @@ public sealed class StreamCapture : IAudioCapture
         catch (OperationCanceledException) { }
         catch (Exception ex)
         {
-            _log.LogDebug(ex, "[{Channel}] Ошибка чтения stderr ffmpeg", _channelName);
+            _log.LogDebug(ex, "Ошибка чтения stderr ffmpeg");
         }
     }
+
+    /// <summary>Thrown by <see cref="ReadLoopAsync"/> when ffmpeg stops producing stdout bytes for
+    /// longer than <see cref="StallTimeout"/> without exiting — treated like any other capture
+    /// failure by <see cref="RunLoopAsync"/>'s reconnect logic.</summary>
+    private sealed class StreamStallException(string message) : Exception(message);
 }

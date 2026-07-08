@@ -20,6 +20,7 @@ public class AudioEngineManager : IHostedService
     public event Action<string, LevelReading>? LevelUpdated;
     public event Action<string, EngineStatus>? StatusUpdated;
     public event Action<string, GoniometerFrame>? GoniometerUpdated;
+    public event Action<string, string>? MetadataUpdated;
 
     public AudioEngineManager(ChannelManager channelManager, ILoggerFactory loggerFactory,
         ILogger<AudioEngineManager> logger, IConfiguration configuration, AppSettingsService appSettings)
@@ -66,6 +67,14 @@ public class AudioEngineManager : IHostedService
         lock (_lock)
         {
             return _engines.TryGetValue(channelName, out var engine) ? engine.Status : null;
+        }
+    }
+
+    public string? GetMetadataText(string channelName)
+    {
+        lock (_lock)
+        {
+            return _engines.TryGetValue(channelName, out var engine) ? engine.MetadataText : null;
         }
     }
 
@@ -130,7 +139,8 @@ public class AudioEngineManager : IHostedService
                 () => _appSettings.Current.AdKeywords,
                 () => _appSettings.Current.ReconnectDelaySeconds,
                 () => _appSettings.Current.ReconnectMaxAttempts,
-                () => _appSettings.Current.NewsKeywords);
+                () => _appSettings.Current.NewsKeywords,
+                text => PushMetadata(channelName, text));
 
             _engines[channelName] = engine;
             try
@@ -140,7 +150,8 @@ public class AudioEngineManager : IHostedService
             catch (Exception ex)
             {
                 _engines.Remove(channelName);
-                _logger.LogError(ex, "Не удалось запустить канал '{Channel}'", channelName);
+                using (_logger.BeginScope(new Dictionary<string, object> { ["Channel"] = channelName }))
+                    _logger.LogError(ex, "Не удалось запустить канал");
                 throw;
             }
         }
@@ -198,7 +209,7 @@ public class AudioEngineManager : IHostedService
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Ошибка в обработчике LevelUpdated для канала '{Channel}'", channelName);
+            _logger.LogError(ex, "Ошибка в обработчике LevelUpdated");
         }
     }
 
@@ -210,7 +221,7 @@ public class AudioEngineManager : IHostedService
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Ошибка в обработчике StatusUpdated для канала '{Channel}'", channelName);
+            _logger.LogError(ex, "Ошибка в обработчике StatusUpdated");
         }
     }
 
@@ -222,7 +233,19 @@ public class AudioEngineManager : IHostedService
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Ошибка в обработчике GoniometerUpdated для канала '{Channel}'", channelName);
+            _logger.LogError(ex, "Ошибка в обработчике GoniometerUpdated");
+        }
+    }
+
+    private void PushMetadata(string channelName, string text)
+    {
+        try
+        {
+            MetadataUpdated?.Invoke(channelName, text);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Ошибка в обработчике MetadataUpdated");
         }
     }
 }

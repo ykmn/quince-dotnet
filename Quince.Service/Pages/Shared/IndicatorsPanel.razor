@@ -1,4 +1,5 @@
 @using System.Globalization
+@using Microsoft.Extensions.Logging
 @using Quince.Service.Configuration
 @using Quince.Service.Services
 @using Quince.Service.Audio
@@ -6,6 +7,7 @@
 @inject AudioEngineManager EngineManager
 @inject AppSettingsService AppSettings
 @inject LocalizationService Loc
+@inject ILogger<IndicatorsPanel> Log
 @implements IDisposable
 
 <div class="indicators-panel">
@@ -95,6 +97,8 @@
     private PeakMax GetMax(string channelName) =>
         _maxes.TryGetValue(channelName, out var m) ? m : PeakMax.Empty;
 
+    private volatile bool _renderPending;
+
     private void OnLevelUpdated(string channelName, LevelReading reading)
     {
         if (channelName != ChannelName) return;
@@ -111,7 +115,7 @@
             Math.Max(max.LufsS, reading.LoudnessS),
             Math.Max(max.LufsI, reading.LoudnessI));
 
-        InvokeAsync(StateHasChanged);
+        RequestRender();
     }
 
     private void OnStatusUpdated(string channelName, EngineStatus status)
@@ -119,7 +123,23 @@
         if (channelName != ChannelName) return;
         if (!status.IsRecording)
             _levels[channelName] = new LevelReading();
-        InvokeAsync(StateHasChanged);
+        RequestRender();
+    }
+
+    /// <summary>Coalesces bursts of level/status events into at most one outstanding
+    /// <see cref="StateHasChanged"/> dispatch — see <c>ChannelCard.razor</c>'s identical helper for
+    /// the full rationale (avoids a stale-render backlog making the meters look frozen).</summary>
+    private void RequestRender()
+    {
+        if (_renderPending) return;
+        _renderPending = true;
+        var queuedAt = RenderDispatchDiagnostics.StartTimestamp();
+        InvokeAsync(() =>
+        {
+            _renderPending = false;
+            RenderDispatchDiagnostics.WarnIfQueueLagged(Log, ChannelName, "IndicatorsPanel.StateHasChanged", queuedAt);
+            StateHasChanged();
+        });
     }
 
     private void ResetMax(string channelName) => _maxes[channelName] = PeakMax.Empty;

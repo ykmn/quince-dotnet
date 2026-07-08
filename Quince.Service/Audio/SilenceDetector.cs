@@ -90,7 +90,7 @@ public sealed class SilenceDetector
                     _silenceTimer = 0;
                     _soundTimer = 0;
                     _onSilence();
-                    _log.LogWarning("[{Channel}] Тишина обнаружена (уровень {Level:F1} dBFS)", _channelName, levelDb);
+                    _log.LogWarning("Тишина обнаружена (уровень {Level:F1} dBFS)", levelDb);
                 }
             }
             else
@@ -113,7 +113,7 @@ public sealed class SilenceDetector
                     _silenceTimer = 0;
                     _soundTimer = 0;
                     _onSound();
-                    _log.LogInformation("[{Channel}] Звук возобновился (уровень {Level:F1} dBFS)", _channelName, levelDb);
+                    _log.LogInformation("Звук возобновился (уровень {Level:F1} dBFS)", levelDb);
                 }
             }
         }

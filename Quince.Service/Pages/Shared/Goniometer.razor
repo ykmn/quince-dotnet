@@ -1,7 +1,9 @@
+@using Microsoft.Extensions.Logging
 @using Quince.Service.Audio
 @using Quince.Service.Services
 @inject AudioEngineManager EngineManager
 @inject IJSRuntime JsRuntime
+@inject ILogger<Goniometer> Log
 @implements IAsyncDisposable
 
 <div style="width:100%;height:100%;">
@@ -15,6 +17,8 @@
     private ElementReference _canvasRef;
     private bool _disposed;
     private bool _jsInitialized;
+    private volatile bool _drawPending;
+    private GoniometerFrame _pendingFrame = null!; // always set before _drawPending flips true
 
     protected override void OnInitialized()
     {
@@ -33,15 +37,31 @@
     private void OnGoniometerUpdated(string channelName, GoniometerFrame frame)
     {
         if (_disposed || !_jsInitialized || channelName != ChannelName) return;
-        _ = DrawAsync(frame);
+        _pendingFrame = frame;
+
+        // Coalesce bursts into at most one outstanding draw, and dispatch via InvokeAsync — this
+        // fires on the channel's own background LevelMeter thread, and JS interop calls in Blazor
+        // Server must be marshaled onto the circuit's synchronization context rather than issued
+        // directly from an arbitrary background thread.
+        if (_drawPending) return;
+        _drawPending = true;
+        var queuedAt = RenderDispatchDiagnostics.StartTimestamp();
+        _ = InvokeAsync(async () =>
+        {
+            _drawPending = false;
+            RenderDispatchDiagnostics.WarnIfQueueLagged(Log, ChannelName, "Goniometer.draw dispatch", queuedAt);
+            await DrawAsync(_pendingFrame);
+        });
     }
 
     private async Task DrawAsync(GoniometerFrame frame)
     {
+        var drawStartedAt = RenderDispatchDiagnostics.StartTimestamp();
         try
         {
             if (_disposed) return;
             await JsRuntime.InvokeVoidAsync("quinceGoniometer.draw", _canvasRef, frame.Left, frame.Right);
+            RenderDispatchDiagnostics.WarnIfSlow(Log, ChannelName, "Goniometer.draw JS round-trip", drawStartedAt);
         }
         catch (JSDisconnectedException)
         {

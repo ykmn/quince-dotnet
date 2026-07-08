@@ -46,7 +46,7 @@ public class ChannelManager : IHostedService
                 _channels.Add(config);
                 using (_logger.BeginScope(new Dictionary<string, object> { ["Channel"] = config.Name }))
                 {
-                    _logger.LogInformation("[{Channel}] Канал загружен из {File}", config.Name, config.Filename);
+                    _logger.LogInformation("Канал загружен из {File}", config.Filename);
                 }
             }
         }
@@ -76,7 +76,8 @@ public class ChannelManager : IHostedService
             config.Filename = GenerateFilenameLocked(config.Name);
             _loader.Save(_configDir, config);
             _channels.Add(config);
-            _logger.LogInformation("Канал '{Channel}' создан ({File})", config.Name, config.Filename);
+            using (_logger.BeginScope(new Dictionary<string, object> { ["Channel"] = config.Name }))
+                _logger.LogInformation("Канал создан ({File})", config.Filename);
         }
         ChannelAdded?.Invoke(config);
         return config;
@@ -94,7 +95,8 @@ public class ChannelManager : IHostedService
             updated.Filename = filename;
             _loader.Save(_configDir, updated);
             _channels[index] = updated;
-            _logger.LogInformation("Канал '{Channel}' обновлён ({File})", updated.Name, filename);
+            using (_logger.BeginScope(new Dictionary<string, object> { ["Channel"] = updated.Name }))
+                _logger.LogInformation("Канал обновлён ({File})", filename);
         }
         ChannelUpdated?.Invoke(old, updated);
         return updated;
@@ -113,7 +115,8 @@ public class ChannelManager : IHostedService
             clone.AutoStart = false; // don't race two engines against the same source right after cloning
             _loader.Save(_configDir, clone);
             _channels.Add(clone);
-            _logger.LogInformation("Канал '{Channel}' клонирован из '{Source}' ({File})", clone.Name, source.Name, clone.Filename);
+            using (_logger.BeginScope(new Dictionary<string, object> { ["Channel"] = clone.Name }))
+                _logger.LogInformation("Канал клонирован из '{Source}' ({File})", source.Name, clone.Filename);
         }
         ChannelAdded?.Invoke(clone);
         return clone;
@@ -129,9 +132,12 @@ public class ChannelManager : IHostedService
             removed = _channels[index];
             _channels.RemoveAt(index);
             var path = Path.Combine(_configDir, filename);
-            try { File.Delete(path); }
-            catch (IOException ex) { _logger.LogWarning(ex, "[{Channel}] Не удалось удалить файл конфига {File}", removed.Name, filename); }
-            _logger.LogInformation("Канал '{Channel}' удалён ({File})", removed.Name, filename);
+            using (_logger.BeginScope(new Dictionary<string, object> { ["Channel"] = removed.Name }))
+            {
+                try { File.Delete(path); }
+                catch (IOException ex) { _logger.LogWarning(ex, "Не удалось удалить файл конфига {File}", filename); }
+                _logger.LogInformation("Канал удалён ({File})", filename);
+            }
         }
         ChannelRemoved?.Invoke(removed);
     }

@@ -184,7 +184,7 @@ public sealed class SoundcardCapture : IAudioCapture
         while (!ct.IsCancellationRequested)
         {
             _status = StreamStatus.Connecting;
-            _log.LogInformation("[{Channel}] Подключение к аудиоустройству (попытка {Attempt})", _channelName, _reconnectAttempt);
+            _log.LogInformation("Подключение к аудиоустройству (попытка {Attempt})", _reconnectAttempt);
 
             // Signalled from the RecordingStopped event — replaces the old poll-every-500ms loop
             // with an authoritative "the stream really ended, and here's why" callback from WASAPI
@@ -201,7 +201,7 @@ public sealed class SoundcardCapture : IAudioCapture
                 }
 
                 var deviceInfo = devices.First(d => d.Index == deviceIndex.Value);
-                _log.LogInformation("[{Channel}] Выбрано устройство записи: {Name} (индекс {Index})", _channelName, deviceInfo.Name, deviceIndex.Value);
+                _log.LogInformation("Выбрано устройство записи: {Name} (индекс {Index})", deviceInfo.Name, deviceIndex.Value);
 
                 using var enumerator = new MMDeviceEnumerator();
                 var mmDevice = enumerator.GetDevice(deviceInfo.Id);
@@ -218,7 +218,7 @@ public sealed class SoundcardCapture : IAudioCapture
                 _capture = capture;
                 _status = StreamStatus.Streaming;
                 if (_reconnectAttempt > 0)
-                    _log.LogInformation("[{Channel}] Переподключение к аудиоустройству выполнено", _channelName);
+                    _log.LogInformation("Переподключение к аудиоустройству выполнено");
                 _reconnectAttempt = 0;
 
                 var cancelTask = Task.Delay(Timeout.Infinite, ct);
@@ -229,12 +229,12 @@ public sealed class SoundcardCapture : IAudioCapture
                 var stopException = stopSignal.Task.Result;
                 var stillEnumerated = EnumerateDevices().Any(d => d.Id == deviceInfo.Id);
                 _log.LogWarning(stopException,
-                    "[{Channel}] Запись с устройства прекратилась неожиданно (устройство всё ещё видно системе: {StillEnumerated})",
-                    _channelName, stillEnumerated);
+                    "Запись с устройства прекратилась неожиданно (устройство всё ещё видно системе: {StillEnumerated})",
+                    stillEnumerated);
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
-                _log.LogError(ex, "[{Channel}] Ошибка захвата звука с устройства", _channelName);
+                _log.LogError(ex, "Ошибка захвата звука с устройства");
             }
             finally
             {
@@ -248,15 +248,15 @@ public sealed class SoundcardCapture : IAudioCapture
             if (maxAttempts > 0 && _reconnectAttempt > maxAttempts)
             {
                 _status = StreamStatus.Error;
-                _log.LogError("[{Channel}] Превышен предел попыток переподключения ({Max}) — канал останавливается", _channelName, maxAttempts);
+                _log.LogError("Превышен предел попыток переподключения ({Max}) — канал останавливается", maxAttempts);
                 if (_onReconnectExhausted != null) _ = Task.Run(_onReconnectExhausted);
                 return;
             }
 
             _status = StreamStatus.Reconnecting;
             var delaySeconds = Math.Max(1, _getReconnectDelaySeconds());
-            _log.LogWarning("[{Channel}] Устройство записи отключено. Попытка переподключения {Attempt} через {Delay}с",
-                _channelName, _reconnectAttempt, delaySeconds);
+            _log.LogWarning("Устройство записи отключено. Попытка переподключения {Attempt} через {Delay}с",
+                _reconnectAttempt, delaySeconds);
             try { await Task.Delay(TimeSpan.FromSeconds(delaySeconds), ct); }
             catch (OperationCanceledException) { break; }
         }
@@ -283,7 +283,7 @@ public sealed class SoundcardCapture : IAudioCapture
         foreach (var (consumerId, writer) in consumers)
         {
             if (!writer.TryWrite(chunk))
-                _log.LogDebug("[{Channel}] Очередь подписчика '{Consumer}' переполнена — кадр отброшен ({Frames} фреймов)", _channelName, consumerId, frameCount);
+                _log.LogDebug("Очередь подписчика '{Consumer}' переполнена — кадр отброшен ({Frames} фреймов)", consumerId, frameCount);
         }
     }
 

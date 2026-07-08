@@ -63,11 +63,13 @@
         <div class="modal-box" @onclick:stopPropagation="true">
             <div class="about-header">
                 <img src="icon.svg" width="48" height="48" alt="" />
-                <h2>Айва (Quince)</h2>
+                <h2>@Loc["about.title"]</h2>
             </div>
             <p>@Loc["about.subtitle"]</p>
             <p>@Loc.T("about.version", _version)</p>
-            <p class="about-copyright">© 2026 Роман Ермаков — <a href="https://github.com/ykmn/quince-dotnet" target="_blank" rel="noopener">github.com/ykmn/quince-dotnet</a></p>
+            <p class="about-copyright">© 2026 Роман Ермаков :: <a href="https://github.com/ykmn/quince-dotnet" target="_blank" rel="noopener">ykmn/quince-dotnet</a>
+<br><br>
+</p>
             <button class="btn btn-small" @onclick="CloseAbout">@Loc["common.close"]</button>
         </div>
     </div>

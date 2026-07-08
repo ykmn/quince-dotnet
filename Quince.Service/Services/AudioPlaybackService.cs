@@ -54,7 +54,8 @@ public sealed class AudioPlaybackService : IDisposable
             _playingChannel = channelName;
             _autoStarted = autoStarted;
         }
-        _log.LogInformation("Прослушивание канала '{Channel}' начато (браузер)", channelName);
+        using (_log.BeginScope(new Dictionary<string, object> { ["Channel"] = channelName }))
+            _log.LogInformation("Прослушивание начато (браузер)");
         Changed?.Invoke();
     }
 
@@ -74,7 +75,8 @@ public sealed class AudioPlaybackService : IDisposable
         if (channelName == null) return;
 
         if (autoStarted) _engineManager.Stop(channelName);
-        _log.LogInformation("Прослушивание канала '{Channel}' остановлено", channelName);
+        using (_log.BeginScope(new Dictionary<string, object> { ["Channel"] = channelName }))
+            _log.LogInformation("Прослушивание остановлено");
         Changed?.Invoke();
     }
 

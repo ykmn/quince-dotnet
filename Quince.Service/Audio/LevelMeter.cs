@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Threading.Channels;
 using Microsoft.Extensions.Logging;
 
@@ -7,6 +8,13 @@ public sealed class LevelMeter
 {
     private const double MWindowSeconds = 0.400;
     private const double SWindowSeconds = 3.0;
+
+    // Diagnostics for the recurring "indicator freeze" investigation (docs/HISTORY.md #36/#52/#53):
+    // the UI-side dispatcher/JS-interop instrumentation added in 0.00.043 found nothing, which
+    // points further upstream — at this loop, which produces the readings in the first place. Any
+    // gap here (upstream capture/backpressure stall) happens BEFORE an update ever fires, so it's
+    // invisible to dispatcher-lag/JS-duration logging by construction.
+    private static readonly TimeSpan StallWarnThreshold = TimeSpan.FromMilliseconds(300);
     // Each update pushes a LevelReading through AudioEngineManager to every subscribed Blazor
     // component and triggers a StateHasChanged/render round-trip over that circuit's single SignalR
     // connection. Was cut to 0.2s (5Hz) in 0.00.008 to halve render traffic with ~5 channels
@@ -14,6 +22,18 @@ public sealed class LevelMeter
     // the higher render rate — see HISTORY.md for the tradeoff if it needs revisiting.
     private const double UpdateIntervalSeconds = 0.1;
     private const int GoniometerMaxPoints = 256;
+
+    // Some HLS sources have an inherent periodic gap in chunk delivery (waiting on the next live
+    // segment — docs/HISTORY.md #54-58) that buffering can cushion but not eliminate. Without any
+    // help, the meter would just sit dead still at its last value for the length of the gap, which
+    // reads as "frozen"/broken even though it's momentary. Instead, once real updates stop arriving
+    // for DecayGraceWindow, a timer synthesizes readings that fall toward silence at
+    // DecayRateDbPerSecond — like a real analog meter's ballistic release — so the meter visibly
+    // (and correctly) settles instead of freezing; a real reading, whenever it resumes, simply
+    // supersedes the decayed one. Pure cosmetic smoothing — does not touch the underlying gap.
+    private static readonly TimeSpan DecayGraceWindow = TimeSpan.FromMilliseconds(250);
+    private const double DecayRateDbPerSecond = 3.0;
+    private const double DecayFloorDb = -60.0;
 
     // ~1 hour of integrated-loudness block history at 400ms/block (MWindowSeconds), i.e.
     // 3600s / 0.4s = 9000 blocks. Bounds memory/CPU for 24/7 operation instead of growing
@@ -44,6 +64,11 @@ public sealed class LevelMeter
 
     private readonly object _peakLock = new();
     private double _truePeakMaxDb = double.NegativeInfinity;
+
+    private readonly object _readingLock = new();
+    private LevelReading _lastReading = new();
+    private long _lastRealUpdateAt = Stopwatch.GetTimestamp();
+    private Timer? _decayTimer;
 
     private CancellationTokenSource? _cts;
     private Task? _task;
@@ -82,6 +107,8 @@ public sealed class LevelMeter
         if (IsRunning) return;
         _cts = new CancellationTokenSource();
         _task = Task.Run(() => RunAsync(_cts.Token));
+        var period = TimeSpan.FromSeconds(UpdateIntervalSeconds);
+        _decayTimer = new Timer(DecayTick, null, period, period);
     }
 
     public void Stop()
@@ -90,30 +117,52 @@ public sealed class LevelMeter
         try { _task?.Wait(TimeSpan.FromSeconds(2)); } catch (AggregateException) { }
         _cts = null;
         _task = null;
+        _decayTimer?.Dispose();
+        _decayTimer = null;
     }
 
     private async Task RunAsync(CancellationToken ct)
     {
         var realStart = DateTime.UtcNow;
         var audioSeconds = 0.0;
+        var lastChunkAt = Stopwatch.GetTimestamp();
         try
         {
             await foreach (var chunk in _reader.ReadAllAsync(ct))
             {
+                // Raw gap since the previous chunk arrived — the ground-truth signal for "did chunk
+                // delivery itself pause" (upstream capture stall, bounded-channel backpressure,
+                // thread-pool starvation, GC, ...), independent of what the pacing logic below then
+                // does about it.
+                var gap = Stopwatch.GetElapsedTime(lastChunkAt);
+                lastChunkAt = Stopwatch.GetTimestamp();
+                if (gap >= StallWarnThreshold)
+                    _log.LogWarning("Пауза в поступлении аудио-чанков: {GapMs:F0}мс с предыдущего чанка", gap.TotalMilliseconds);
+
                 try
                 {
                     ProcessChunk(chunk);
                 }
                 catch (Exception ex)
                 {
-                    _log.LogError(ex, "[{Channel}] Ошибка обработки чанка в LevelMeter", _channelName);
+                    _log.LogError(ex, "Ошибка обработки чанка в LevelMeter");
                     continue;
                 }
 
                 audioSeconds += chunk.FrameCount / (double)_sampleRate;
                 var ahead = audioSeconds - (DateTime.UtcNow - realStart).TotalSeconds;
                 if (ahead > 0.2)
-                    await Task.Delay(TimeSpan.FromSeconds(ahead - 0.1), ct);
+                {
+                    // Draining a backlog built up during a gap above catches audioSeconds up to (or
+                    // past) real time almost instantly, since queued chunks are yielded back-to-back
+                    // with no per-item delay — this then sleeps to resync to real time, which can
+                    // roughly double the gap's visible effect on _onUpdate (no reading fires for the
+                    // ORIGINAL gap, then none fire for this correction either).
+                    var sleepFor = TimeSpan.FromSeconds(ahead - 0.1);
+                    if (sleepFor >= StallWarnThreshold)
+                        _log.LogWarning("Пауза синхронизации темпа LevelMeter: {SleepMs:F0}мс (обработка опередила реальное время на {AheadMs:F0}мс)", sleepFor.TotalMilliseconds, ahead * 1000);
+                    await Task.Delay(sleepFor, ct);
+                }
             }
         }
         catch (OperationCanceledException) { }
@@ -152,7 +201,7 @@ public sealed class LevelMeter
             }
             catch (Exception ex)
             {
-                _log.LogError(ex, "[{Channel}] Колбэк обновления гониометра выбросил исключение", _channelName);
+                _log.LogError(ex, "Колбэк обновления гониометра выбросил исключение");
             }
         }
 
@@ -185,8 +234,56 @@ public sealed class LevelMeter
             TruePeakLDb: tpL,
             TruePeakRDb: tpR);
 
+        lock (_readingLock)
+        {
+            _lastReading = reading;
+            _lastRealUpdateAt = Stopwatch.GetTimestamp();
+        }
+
         try { _onUpdate(reading); }
-        catch (Exception ex) { _log.LogError(ex, "[{Channel}] Колбэк обновления уровня выбросил исключение", _channelName); }
+        catch (Exception ex) { _log.LogError(ex, "Колбэк обновления уровня выбросил исключение"); }
+    }
+
+    /// <summary>Fires on a timer independent of chunk arrival — see the class-level comment on
+    /// <see cref="DecayGraceWindow"/> for why. No-ops whenever real chunks are still flowing.</summary>
+    internal void DecayTick(object? _)
+    {
+        LevelReading decayed;
+        lock (_readingLock)
+        {
+            if (Stopwatch.GetElapsedTime(_lastRealUpdateAt) < DecayGraceWindow) return;
+            if (IsFullyDecayed(_lastReading)) return;
+            decayed = Decay(_lastReading, TimeSpan.FromSeconds(UpdateIntervalSeconds));
+            _lastReading = decayed;
+        }
+
+        try { _onUpdate(decayed); }
+        catch (Exception ex) { _log.LogError(ex, "Колбэк обновления уровня выбросил исключение (затухание)"); }
+    }
+
+    internal static bool IsFullyDecayed(LevelReading r) =>
+        double.IsNegativeInfinity(r.TruePeakDb) && double.IsNegativeInfinity(r.LoudnessM) && double.IsNegativeInfinity(r.LoudnessS);
+
+    internal static LevelReading Decay(LevelReading last, TimeSpan tick)
+    {
+        var dropDb = DecayRateDbPerSecond * tick.TotalSeconds;
+        return last with
+        {
+            TruePeakDb = DecayValue(last.TruePeakDb, dropDb),
+            LoudnessM = DecayValue(last.LoudnessM, dropDb),
+            LoudnessS = DecayValue(last.LoudnessS, dropDb),
+            TruePeakLDb = DecayValue(last.TruePeakLDb, dropDb),
+            TruePeakRDb = DecayValue(last.TruePeakRDb, dropDb),
+            // LoudnessI is a long-window (~seconds-to-hours) integrated average and TruePeakMaxDb is
+            // a sticky peak-hold — a momentary gap in incoming audio shouldn't visibly move either.
+        };
+    }
+
+    internal static double DecayValue(double db, double dropDb)
+    {
+        if (double.IsNegativeInfinity(db)) return db;
+        var next = db - dropDb;
+        return next <= DecayFloorDb ? double.NegativeInfinity : next;
     }
 
     private static void WriteRing(double[][] buf, ref int head, double[][] perChannel, int frames)

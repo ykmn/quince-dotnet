@@ -7,7 +7,15 @@ internal static class MetadataHttp
 {
     public static HttpClient CreateClient(bool allowInvalidSsl, TimeSpan timeout)
     {
-        var handler = new HttpClientHandler();
+        var handler = new HttpClientHandler
+        {
+            // These are direct calls to known streaming/metadata endpoints — no proxy needed. Left
+            // at the default (true), a fresh HttpClientHandler can trigger WPAD/system-proxy
+            // auto-detection (a synchronous-ish network lookup) on first use, adding up to several
+            // seconds of latency per handler instance — worth ruling out unconditionally, not just
+            // for the reused-client fix below.
+            UseProxy = false,
+        };
         if (allowInvalidSsl)
             handler.ServerCertificateCustomValidationCallback = (_, _, _, _) => true;
         return new HttpClient(handler) { Timeout = timeout };

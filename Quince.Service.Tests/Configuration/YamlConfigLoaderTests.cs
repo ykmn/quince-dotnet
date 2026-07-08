@@ -92,7 +92,7 @@ public class YamlConfigLoaderTests
             var loader = new YamlConfigLoader();
             var config = loader.LoadAll(dir).Single();
 
-            Assert.Equal(60, config.FileDurationMinutes);
+            Assert.Equal(10, config.FileDurationMinutes);
         }
         finally
         {

@@ -30,6 +30,7 @@
   "menu.aboutTitle": "Информация о программе",
   "menu.languageTitle": "Язык интерфейса",
 
+  "about.title": "Айва",
   "about.subtitle": "Многоканальный аудиологгер.",
   "about.version": "Версия: {0}",
 
@@ -65,9 +66,10 @@
   "channelCard.deleteTitle": "Удалить канал",
   "channelCard.levelTitle": "Текущий уровень True Peak (мгновенный)",
   "channelCard.sourceTitle": "Источник звука этого канала",
-  "channelCard.sourceLabel": "Вход: {0}",
+  "channelCard.sourceLabelPrefix": "Вход:",
   "channelCard.outputTitle": "Формат и место сохранения аудиофайлов этого канала",
-  "channelCard.outputLabel": "Файл: {0}",
+  "channelCard.outputLabelPrefix": "Файл:",
+  "channelCard.metadataLabelPrefix": "Метаданные:",
   "channelCard.statusRecordingReconnect": "Запись идёт (переподключение, попытка {0})",
   "channelCard.statusRecording": "Запись идёт",
   "channelCard.statusError": "Ошибка: превышен предел попыток переподключения",

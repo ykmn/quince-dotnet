@@ -51,7 +51,7 @@ public class YamlConfigLoader
     /// `file_duration_seconds` was renamed to `file_duration_minutes`. Old configs still on disk with
     /// the former key would otherwise silently lose their configured rotation interval — deserializing
     /// ignores the unmatched old key (see <c>IgnoreUnmatchedProperties</c>) and <see cref="ChannelConfig.FileDurationMinutes"/>
-    /// would just sit at its default (60) instead of the value the file actually specified. Only
+    /// would just sit at its default instead of the value the file actually specified. Only
     /// applies when the new key isn't already present (a resaved/hand-written file takes priority).
     /// </summary>
     private static void MigrateFileDurationSeconds(ChannelConfig config, string rawYaml)

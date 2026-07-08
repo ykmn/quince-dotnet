@@ -10,8 +10,10 @@ using Quince.Service.Services;
 // simultaneously-ready continuations queued for a moment — observed as UI indicators freezing and
 // monitored playback audio glitching at the very same moments, even for a plain Icecast source with
 // no HLS segment jitter to blame. Raise the floor so the pool starts warm instead of ramping up
-// under load.
-ThreadPool.SetMinThreads(64, 64);
+// under load. 64 was sized for "several" channels; real-world deployments run 15-30 channels at
+// once (~5-7 background Tasks each = 100-200+), so raised to 256 for headroom at the top of that
+// range plus room to grow.
+ThreadPool.SetMinThreads(256, 256);
 
 // WebApplication.CreateBuilder(args) defaults ContentRootPath (and therefore WebRootPath =
 // ContentRootPath/wwwroot) to Directory.GetCurrentDirectory() — the process's *working* directory,

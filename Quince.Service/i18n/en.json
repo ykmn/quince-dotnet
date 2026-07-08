@@ -30,6 +30,7 @@
   "menu.aboutTitle": "Application information",
   "menu.languageTitle": "Interface language",
 
+  "about.title": "Quince",
   "about.subtitle": "Multi-channel audio logger.",
   "about.version": "Version: {0}",
 
@@ -65,9 +66,10 @@
   "channelCard.deleteTitle": "Delete channel",
   "channelCard.levelTitle": "Current True Peak level (instantaneous)",
   "channelCard.sourceTitle": "This channel's audio source",
-  "channelCard.sourceLabel": "Input: {0}",
+  "channelCard.sourceLabelPrefix": "Input:",
   "channelCard.outputTitle": "This channel's audio file format and save location",
-  "channelCard.outputLabel": "File: {0}",
+  "channelCard.outputLabelPrefix": "File:",
+  "channelCard.metadataLabelPrefix": "Metadata:",
   "channelCard.statusRecordingReconnect": "Recording (reconnecting, attempt {0})",
   "channelCard.statusRecording": "Recording",
   "channelCard.statusError": "Error: reconnect attempt limit exceeded",

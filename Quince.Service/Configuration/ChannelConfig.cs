@@ -9,7 +9,7 @@ public class ChannelConfig
     public string SavePath { get; set; } = "";
     public string DateFolderFormat { get; set; } = "YYYY-MM-DD";
     public string FileNameFormat { get; set; } = "hh-mm-ss";
-    public int FileDurationMinutes { get; set; } = 60;
+    public int FileDurationMinutes { get; set; } = 10;
     public bool RecordAudio { get; set; } = true;
     public int RetentionDays { get; set; } = 30;
     public bool AutoStart { get; set; } = false;

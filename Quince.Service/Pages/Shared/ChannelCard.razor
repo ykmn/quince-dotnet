@@ -1,4 +1,5 @@
 @using System.Globalization
+@using Microsoft.Extensions.Logging
 @using Quince.Service.Configuration
 @using Quince.Service.Services
 @using Quince.Service.Audio
@@ -8,6 +9,7 @@
 @inject AppSettingsService AppSettings
 @inject AudioPlaybackService PlaybackService
 @inject LocalizationService Loc
+@inject ILogger<ChannelCard> Log
 @implements IAsyncDisposable
 
 <div class="channel-card @StatusBorderClass">
@@ -43,15 +45,23 @@
         <button class="btn btn-meters" title="@Loc["channelCard.metersTitle"]" @onclick="OpenIndicators">@Loc["channelCard.meters"]</button>
         <button class="btn btn-delete" title="@Loc["channelCard.deleteTitle"]" @onclick="Delete">✕</button>
     </div>
-    <div class="level-widget" title="@Loc["channelCard.levelTitle"]">
-        <div class="level-row">
-            <span class="level-label">TP</span>
-            <div class="level-track" style="background: @(TrackGradient);"><div class="level-cover" style="width: @(CoverPercentText)%;"></div></div>
-            <span class="level-value">@LevelValueText</span>
+    <div class="channel-info-row">
+        <div class="channel-info-col">
+            <div class="channel-row2" title="@Loc["channelCard.sourceTitle"]"><strong>@Loc["channelCard.sourceLabelPrefix"]</strong> @ChannelDisplayFormatter.FormatSource(Config)</div>
+            <div class="channel-row3" title="@Loc["channelCard.outputTitle"]"><strong>@Loc["channelCard.outputLabelPrefix"]</strong> @ChannelDisplayFormatter.FormatOutput(Config, Loc)</div>
+            @if (HasMetadata)
+            {
+                <div class="channel-row-metadata" title="@MetadataDotTitle"><strong>@Loc["channelCard.metadataLabelPrefix"]</strong> @(_metadataText ?? Loc["channelCard.metadataNotFlowing"])</div>
+            }
+        </div>
+        <div class="level-widget" title="@Loc["channelCard.levelTitle"]">
+            <div class="level-row">
+                <span class="level-label">TP</span>
+                <div class="level-track" style="background: @(TrackGradient);"><div class="level-cover" style="width: @(CoverPercentText)%;"></div></div>
+                <span class="level-value">@LevelValueText</span>
+            </div>
         </div>
     </div>
-    <div class="channel-row2" title="@Loc["channelCard.sourceTitle"]">@Loc.T("channelCard.sourceLabel", ChannelDisplayFormatter.FormatSource(Config))</div>
-    <div class="channel-row3" title="@Loc["channelCard.outputTitle"]">@Loc.T("channelCard.outputLabel", ChannelDisplayFormatter.FormatOutput(Config, Loc))</div>
 </div>
 
 @code {
@@ -60,6 +70,7 @@
 
     private EngineStatus _status = new();
     private LevelReading _level = new();
+    private string? _metadataText;
     private bool _disposed;
 
     // Green while recording (including during a transient reconnect attempt — IsRecording stays
@@ -142,8 +153,10 @@
         if (!IsEligibleType) return;
 
         _status = EngineManager.GetStatus(Config.Name) ?? new EngineStatus();
+        _metadataText = EngineManager.GetMetadataText(Config.Name);
         EngineManager.LevelUpdated += OnLevelUpdated;
         EngineManager.StatusUpdated += OnStatusUpdated;
+        EngineManager.MetadataUpdated += OnMetadataUpdated;
     }
 
     private void OnSettingsChanged()
@@ -167,11 +180,13 @@
         }
     }
 
+    private volatile bool _renderPending;
+
     private void OnLevelUpdated(string channelName, LevelReading reading)
     {
         if (_disposed || channelName != Config.Name) return;
         _level = reading;
-        InvokeAsync(StateHasChanged);
+        RequestRender();
     }
 
     private void OnStatusUpdated(string channelName, EngineStatus status)
@@ -179,8 +194,36 @@
         if (_disposed || channelName != Config.Name) return;
         _status = status;
         if (!status.IsRecording)
+        {
             _level = new LevelReading();
-        InvokeAsync(StateHasChanged);
+            _metadataText = null;
+        }
+        RequestRender();
+    }
+
+    private void OnMetadataUpdated(string channelName, string text)
+    {
+        if (_disposed || channelName != Config.Name) return;
+        _metadataText = text;
+        RequestRender();
+    }
+
+    /// <summary>Coalesces bursts of level/status events into at most one outstanding
+    /// <see cref="StateHasChanged"/> dispatch — under transient dispatcher backlog (e.g. thread-pool
+    /// contention with many channels running at once), queuing a fresh render per event would pile
+    /// up stale re-renders and make the indicator look frozen until the whole backlog drains instead
+    /// of catching up to the latest reading on the very next tick.</summary>
+    private void RequestRender()
+    {
+        if (_renderPending) return;
+        _renderPending = true;
+        var queuedAt = RenderDispatchDiagnostics.StartTimestamp();
+        InvokeAsync(() =>
+        {
+            _renderPending = false;
+            RenderDispatchDiagnostics.WarnIfQueueLagged(Log, Config.Name, "ChannelCard.StateHasChanged", queuedAt);
+            StateHasChanged();
+        });
     }
 
     private void ToggleRecording()
@@ -210,6 +253,7 @@
         {
             EngineManager.LevelUpdated -= OnLevelUpdated;
             EngineManager.StatusUpdated -= OnStatusUpdated;
+            EngineManager.MetadataUpdated -= OnMetadataUpdated;
         }
         return ValueTask.CompletedTask;
     }

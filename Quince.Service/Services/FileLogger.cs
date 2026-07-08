@@ -26,21 +26,7 @@ public class FileLogger : ILogger
         if (exception != null)
             message += Environment.NewLine + exception;
 
-        var channel = FindChannel(state) ?? FindChannelInScopes();
-        _provider.WriteLine(logLevel, channel ?? "-", message);
-    }
-
-    private static string? FindChannel<TState>(TState state)
-    {
-        if (state is IEnumerable<KeyValuePair<string, object>> pairs)
-        {
-            foreach (var kv in pairs)
-            {
-                if (kv.Key == "Channel")
-                    return kv.Value?.ToString();
-            }
-        }
-        return null;
+        _provider.WriteLine(logLevel, FindChannelInScopes() ?? "-", message);
     }
 
     private string? FindChannelInScopes()

@@ -78,4 +78,73 @@ public class LevelMeterTests
         // At least one non-zero sample proves it's not all-zeroed (the ramp starts at 0).
         Assert.Contains(received.Left, v => v > 0);
     }
+
+    [Fact]
+    public void DecayTick_ImmediatelyAfterRealUpdate_DoesNotFire()
+    {
+        var callCount = 0;
+        var channel = Channel.CreateUnbounded<AudioChunk>();
+        var meter = new LevelMeter(channel.Reader, sampleRate: 44100, channels: 1,
+            onUpdate: _ => callCount++, log: NullLogger.Instance);
+
+        var samples = new float[10000];
+        for (var i = 0; i < samples.Length; i++) samples[i] = 1.0f;
+        meter.ProcessChunk(new AudioChunk(samples, channels: 1));
+        Assert.Equal(1, callCount);
+
+        meter.DecayTick(null);
+
+        // Grace window (250ms) hasn't elapsed since the real update above — no synthetic tick.
+        Assert.Equal(1, callCount);
+    }
+
+    [Fact]
+    public async Task DecayTick_AfterGraceWindowElapsed_FiresReadingBelowLastRealValue()
+    {
+        LevelReading? received = null;
+        var channel = Channel.CreateUnbounded<AudioChunk>();
+        var meter = new LevelMeter(channel.Reader, sampleRate: 44100, channels: 1,
+            onUpdate: r => received = r, log: NullLogger.Instance);
+
+        var samples = new float[10000];
+        for (var i = 0; i < samples.Length; i++) samples[i] = 1.0f;
+        meter.ProcessChunk(new AudioChunk(samples, channels: 1));
+        var initialPeak = received!.TruePeakDb;
+
+        await Task.Delay(300);
+        meter.DecayTick(null);
+
+        Assert.True(received!.TruePeakDb < initialPeak);
+    }
+
+    [Fact]
+    public void DecayValue_DropsByGivenAmount()
+    {
+        Assert.Equal(-10.0, LevelMeter.DecayValue(-5.0, 5.0), precision: 6);
+    }
+
+    [Fact]
+    public void DecayValue_NegativeInfinity_StaysNegativeInfinity()
+    {
+        Assert.True(double.IsNegativeInfinity(LevelMeter.DecayValue(double.NegativeInfinity, 5.0)));
+    }
+
+    [Fact]
+    public void DecayValue_PastFloor_SnapsToNegativeInfinity()
+    {
+        Assert.True(double.IsNegativeInfinity(LevelMeter.DecayValue(-58.0, 5.0)));
+    }
+
+    [Fact]
+    public void IsFullyDecayed_AllRelevantFieldsNegativeInfinity_ReturnsTrue()
+    {
+        var reading = new LevelReading(
+            TruePeakDb: double.NegativeInfinity, TruePeakMaxDb: -3.0,
+            LoudnessM: double.NegativeInfinity, LoudnessS: double.NegativeInfinity,
+            LoudnessI: -12.0, TruePeakLDb: -3.0, TruePeakRDb: -3.0);
+
+        // TruePeakMaxDb/LoudnessI/TruePeakLDb/TruePeakRDb intentionally don't gate this — only the
+        // fields Decay() actually reduces do.
+        Assert.True(LevelMeter.IsFullyDecayed(reading));
+    }
 }

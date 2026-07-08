@@ -53,13 +53,15 @@ public static class AudioStreamEndpoint
         catch (Win32Exception ex)
         {
             engineManager.UnsubscribeAudio(channelName, consumerId);
-            log.LogError(ex, "ffmpeg не найден по пути {Path} — не удалось начать потоковое прослушивание канала '{Channel}'", engineManager.FfmpegPath, channelName);
+            using (log.BeginScope(new Dictionary<string, object> { ["Channel"] = channelName }))
+                log.LogError(ex, "ffmpeg не найден по пути {Path} — не удалось начать потоковое прослушивание", engineManager.FfmpegPath);
             ctx.Response.StatusCode = StatusCodes.Status500InternalServerError;
             return;
         }
 
         var ct = ctx.RequestAborted;
-        _ = DrainStderrAsync(proc, channelName, log);
+        using var streamScope = log.BeginScope(new Dictionary<string, object> { ["Channel"] = channelName });
+        _ = DrainStderrAsync(proc, log);
 
         var pumpIn = Task.Run(async () =>
         {
@@ -75,7 +77,7 @@ public static class AudioStreamEndpoint
             catch (OperationCanceledException) { }
             catch (Exception ex)
             {
-                log.LogError(ex, "Ошибка передачи аудио в ffmpeg при потоковом прослушивании канала '{Channel}'", channelName);
+                log.LogError(ex, "Ошибка передачи аудио в ffmpeg при потоковом прослушивании");
             }
             finally
             {
@@ -97,14 +99,14 @@ public static class AudioStreamEndpoint
         }
     }
 
-    private static async Task DrainStderrAsync(Process proc, string channelName, ILogger log)
+    private static async Task DrainStderrAsync(Process proc, ILogger log)
     {
         try
         {
             string? line;
             while ((line = await proc.StandardError.ReadLineAsync()) != null)
             {
-                log.LogDebug("[{Channel}] ffmpeg (потоковое прослушивание): {Line}", channelName, line);
+                log.LogDebug("ffmpeg (потоковое прослушивание): {Line}", line);
             }
         }
         catch { /* process exited/killed while reading */ }
