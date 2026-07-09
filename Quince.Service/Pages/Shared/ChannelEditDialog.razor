@@ -45,9 +45,19 @@
                     <label title="@Loc["channelEdit.streamTypeTitle"]">@Loc["channelEdit.streamTypeLabel"]</label>
                     <select @bind="_draft.Source.StreamType" title="@Loc["channelEdit.streamTypeTitle"]">
                         <option value="icecast">@Loc["channelEdit.streamTypeIcecast"]</option>
-                        <option value="icecast_mp3">@Loc["channelEdit.streamTypeIcecastMp3"]</option>
                         <option value="hls">@Loc["channelEdit.streamTypeHls"]</option>
                     </select>
+
+                    var streamTypeMismatch = ChannelDisplayFormatter.DetectStreamTypeMismatch(_draft.Source);
+                    @if (streamTypeMismatch != StreamTypeMismatch.None)
+                    {
+                        <label></label>
+                        <div class="form-hint-warn">
+                            @Loc[streamTypeMismatch == StreamTypeMismatch.UrlLooksHlsButTypeIsNot
+                                ? "channelEdit.streamTypeMismatchUrlIsHls"
+                                : "channelEdit.streamTypeMismatchTypeIsHls"]
+                        </div>
+                    }
 
                     @if (_draft.Source.StreamType == "hls")
                     {
@@ -252,6 +262,10 @@
         var target = UiState.EditTarget;
         _isCreate = target is null;
         _draft = target is null ? new ChannelConfig() : Loader.Clone(target);
+        // "icecast_mp3" was a distinct dropdown option that never actually behaved differently from
+        // "icecast" anywhere at runtime (docs/HISTORY.md #62) — normalize silently so the merged
+        // two-option <select> shows a real selection instead of nothing for older saved channels.
+        if (_draft.Source.StreamType == "icecast_mp3") _draft.Source.StreamType = "icecast";
         if (_draft.Source.Type == "soundcard")
             RefreshDevices();
         else

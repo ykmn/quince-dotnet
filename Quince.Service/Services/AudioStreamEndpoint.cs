@@ -1,16 +1,20 @@
 using System.ComponentModel;
 using System.Diagnostics;
+using Quince.Service.Audio;
 
 namespace Quince.Service.Services;
 
 /// <summary>
 /// Serves a channel's live audio to the browser as a continuous MP3 stream, for the ▶ "listen to
 /// channel" button (<see cref="AudioPlaybackService"/>). Subscribes to the channel's raw PCM the
-/// same way <see cref="Audio.AudioWriter"/> and the level meter do, pipes it through the bundled
-/// ffmpeg to encode MP3 in real time, and copies ffmpeg's stdout straight into the HTTP response
-/// body — an &lt;audio&gt; element in the client plays it through the browser's/OS's current
-/// default output device. No device selection: that needs a secure context (HTTPS) for
-/// <c>HTMLMediaElement.setSinkId()</c>, which this app doesn't have yet.
+/// same way <see cref="Audio.AudioWriter"/> does, but runs it through the same <see cref="PlayoutBuffer"/>
+/// the level meter uses (docs/HISTORY.md #61) before piping it through the bundled ffmpeg to encode
+/// MP3 in real time and copying ffmpeg's stdout straight into the HTTP response body — an
+/// &lt;audio&gt; element in the client plays it through the browser's/OS's current default output
+/// device. The buffer means what's heard lags the real feed by ~12s (same depth as the meter, so
+/// audio and indicator stay in sync with each other) but no longer audibly stutters on the same
+/// producer-side gaps the meter used to visibly freeze on. No device selection: that needs a secure
+/// context (HTTPS) for <c>HTMLMediaElement.setSinkId()</c>, which this app doesn't have yet.
 /// </summary>
 public static class AudioStreamEndpoint
 {
@@ -26,6 +30,9 @@ public static class AudioStreamEndpoint
             ctx.Response.StatusCode = StatusCodes.Status404NotFound;
             return;
         }
+
+        var buffer = new PlayoutBuffer(reader, SampleRate, log, channelName, engineManager.PlayoutBufferSeconds);
+        buffer.Start();
 
         ctx.Response.ContentType = "audio/mpeg";
         ctx.Response.Headers.CacheControl = "no-store";
@@ -67,7 +74,7 @@ public static class AudioStreamEndpoint
         {
             try
             {
-                await foreach (var chunk in reader.ReadAllAsync(ct))
+                await foreach (var chunk in buffer.Reader.ReadAllAsync(ct))
                 {
                     var bytes = new byte[chunk.Samples.Length * sizeof(float)];
                     Buffer.BlockCopy(chunk.Samples, 0, bytes, 0, bytes.Length);
@@ -93,6 +100,7 @@ public static class AudioStreamEndpoint
         finally
         {
             engineManager.UnsubscribeAudio(channelName, consumerId);
+            buffer.Stop();
             try { if (!proc.HasExited) proc.Kill(true); } catch { /* already exited */ }
             try { await pumpIn; } catch { /* already logged above */ }
             proc.Dispose();

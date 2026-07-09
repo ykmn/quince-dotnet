@@ -11,9 +11,12 @@ public sealed class LevelMeter
 
     // Diagnostics for the recurring "indicator freeze" investigation (docs/HISTORY.md #36/#52/#53):
     // the UI-side dispatcher/JS-interop instrumentation added in 0.00.043 found nothing, which
-    // points further upstream — at this loop, which produces the readings in the first place. Any
-    // gap here (upstream capture/backpressure stall) happens BEFORE an update ever fires, so it's
-    // invisible to dispatcher-lag/JS-duration logging by construction.
+    // pointed further upstream. As of 0.00.050 the raw arrival-gap warning ("Пауза в поступлении
+    // аудио-чанков") moved to PlayoutBuffer, which now normally sits in front of this class
+    // (docs/HISTORY.md #61) — a gap on THIS class's own reader would just mean "the buffer is
+    // priming or has run dry", not "the upstream source stalled", so logging it here would be
+    // misleading (e.g. a false alarm on every channel start while the buffer primes). This
+    // threshold is still used below to decide whether the pacing catch-up sleep is worth logging.
     private static readonly TimeSpan StallWarnThreshold = TimeSpan.FromMilliseconds(300);
     // Each update pushes a LevelReading through AudioEngineManager to every subscribed Blazor
     // component and triggers a StateHasChanged/render round-trip over that circuit's single SignalR
@@ -24,10 +27,13 @@ public sealed class LevelMeter
     private const int GoniometerMaxPoints = 256;
 
     // Some HLS sources have an inherent periodic gap in chunk delivery (waiting on the next live
-    // segment — docs/HISTORY.md #54-58) that buffering can cushion but not eliminate. Without any
-    // help, the meter would just sit dead still at its last value for the length of the gap, which
-    // reads as "frozen"/broken even though it's momentary. Instead, once real updates stop arriving
-    // for DecayGraceWindow, a timer synthesizes readings that fall toward silence at
+    // segment — docs/HISTORY.md #54-58). As of 0.00.050 a PlayoutBuffer normally sits upstream of
+    // this class and absorbs gaps shorter than its buffered depth entirely (docs/HISTORY.md #61) —
+    // this decay mechanism is now mainly a fallback for the priming window (channel/listen-in start,
+    // before the buffer has anything to release) and for real outages that outlast the buffer.
+    // Without it, the meter would just sit dead still at its last value for the length of the gap,
+    // which reads as "frozen"/broken even though it's momentary. Once real updates stop arriving for
+    // DecayGraceWindow, a timer synthesizes readings that fall toward silence at
     // DecayRateDbPerSecond — like a real analog meter's ballistic release — so the meter visibly
     // (and correctly) settles instead of freezing; a real reading, whenever it resumes, simply
     // supersedes the decayed one. Pure cosmetic smoothing — does not touch the underlying gap.
@@ -125,20 +131,10 @@ public sealed class LevelMeter
     {
         var realStart = DateTime.UtcNow;
         var audioSeconds = 0.0;
-        var lastChunkAt = Stopwatch.GetTimestamp();
         try
         {
             await foreach (var chunk in _reader.ReadAllAsync(ct))
             {
-                // Raw gap since the previous chunk arrived — the ground-truth signal for "did chunk
-                // delivery itself pause" (upstream capture stall, bounded-channel backpressure,
-                // thread-pool starvation, GC, ...), independent of what the pacing logic below then
-                // does about it.
-                var gap = Stopwatch.GetElapsedTime(lastChunkAt);
-                lastChunkAt = Stopwatch.GetTimestamp();
-                if (gap >= StallWarnThreshold)
-                    _log.LogWarning("Пауза в поступлении аудио-чанков: {GapMs:F0}мс с предыдущего чанка", gap.TotalMilliseconds);
-
                 try
                 {
                     ProcessChunk(chunk);

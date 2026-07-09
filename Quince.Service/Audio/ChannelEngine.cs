@@ -16,12 +16,14 @@ public sealed class ChannelEngine
     private readonly Func<IReadOnlyList<string>>? _getNewsKeywords;
     private readonly Func<int> _getReconnectDelaySeconds;
     private readonly Func<int> _getReconnectMaxAttempts;
+    private readonly Func<double> _getPlayoutBufferSeconds;
 
     private volatile string? _metadataText;
 
     private ChannelConfig _config;
     private IAudioCapture? _capture;
     private AudioWriter? _writer;
+    private PlayoutBuffer? _meterBuffer;
     private LevelMeter? _meter;
     private SilenceDetector? _silence;
     private IMetadataReader? _metadataReader;
@@ -40,7 +42,8 @@ public sealed class ChannelEngine
         Func<IReadOnlyList<string>>? getAdKeywords = null,
         Func<int>? getReconnectDelaySeconds = null, Func<int>? getReconnectMaxAttempts = null,
         Func<IReadOnlyList<string>>? getNewsKeywords = null,
-        Action<string>? onMetadataUpdate = null)
+        Action<string>? onMetadataUpdate = null,
+        Func<double>? getPlayoutBufferSeconds = null)
     {
         _config = config;
         _ffmpegPath = ffmpegPath;
@@ -54,6 +57,7 @@ public sealed class ChannelEngine
         _getReconnectMaxAttempts = getReconnectMaxAttempts ?? (() => 0);
         _getNewsKeywords = getNewsKeywords;
         _onMetadataUpdate = onMetadataUpdate;
+        _getPlayoutBufferSeconds = getPlayoutBufferSeconds ?? (() => PlayoutBuffer.DefaultTargetDelaySeconds);
     }
 
     public EngineStatus Status
@@ -86,7 +90,12 @@ public sealed class ChannelEngine
                 _getReconnectDelaySeconds, _getReconnectMaxAttempts,
                 _loggerFactory.CreateLogger("StreamCapture"), OnReconnectExhausted, _config.Name);
 
+        // Wrapped in a PlayoutBuffer (docs/HISTORY.md #61) so the on-screen meter/goniometer lag
+        // real time by a fixed ~12s instead of visibly freezing/snapping on every producer-side gap
+        // (e.g. HLS's periodic wait for the next live segment). Recording (below) and the silence
+        // detector deliberately stay on the raw, unbuffered feed.
         var meterReader = _capture.Subscribe("meter");
+        _meterBuffer = new PlayoutBuffer(meterReader, _capture.SampleRate, _loggerFactory.CreateLogger("PlayoutBuffer"), _config.Name, _getPlayoutBufferSeconds());
 
         if (_config.RecordAudio)
         {
@@ -95,7 +104,7 @@ public sealed class ChannelEngine
                 _ffmpegPath, _loggerFactory.CreateLogger("AudioWriter"));
         }
 
-        _meter = new LevelMeter(meterReader, _capture.SampleRate, _capture.Channels, _onLevelUpdate,
+        _meter = new LevelMeter(_meterBuffer.Reader, _capture.SampleRate, _capture.Channels, _onLevelUpdate,
             _loggerFactory.CreateLogger("LevelMeter"), _onGoniometerUpdate, _config.Name);
 
         if (_config.SilenceDetector.Enabled)
@@ -108,6 +117,7 @@ public sealed class ChannelEngine
         try
         {
             _writer?.Start();
+            _meterBuffer.Start();
             _meter.Start();
             _silence?.Start();
             _capture.Start();
@@ -116,10 +126,12 @@ public sealed class ChannelEngine
         {
             _silence?.Stop();
             _meter?.Stop();
+            _meterBuffer?.Stop();
             _writer?.Stop();
             _capture?.Stop();
             _capture = null;
             _writer = null;
+            _meterBuffer = null;
             _meter = null;
             _silence = null;
             throw;
@@ -163,6 +175,7 @@ public sealed class ChannelEngine
         _metadataWriter?.Flush(); _metadataWriter = null;
         _silence?.Stop(); _silence = null;
         _meter?.Stop(); _meter = null;
+        _meterBuffer?.Stop(); _meterBuffer = null;
         _writer?.Stop(); _writer = null;
         _capture?.Stop(); _capture = null;
 

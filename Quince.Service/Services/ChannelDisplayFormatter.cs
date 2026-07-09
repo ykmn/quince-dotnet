@@ -3,8 +3,34 @@ using Quince.Service.Configuration;
 
 namespace Quince.Service.Services;
 
+/// <summary>Which direction (if any) a channel's <see cref="SourceConfig.Url"/> disagrees with its
+/// declared <see cref="SourceConfig.StreamType"/>, per <see cref="ChannelDisplayFormatter.DetectStreamTypeMismatch"/>.</summary>
+public enum StreamTypeMismatch
+{
+    None,
+    /// <summary>URL looks like an HLS playlist (contains ".m3u8") but StreamType isn't "hls".</summary>
+    UrlLooksHlsButTypeIsNot,
+    /// <summary>StreamType is "hls" but the URL doesn't look like an HLS playlist.</summary>
+    TypeIsHlsButUrlDoesNot,
+}
+
 public static class ChannelDisplayFormatter
 {
+    /// <summary>Heuristic-only, non-blocking check — same ".m3u8" substring test already used by
+    /// <c>scripts/Import-RadioPlayerStations.ps1</c> for bulk station import, just not previously
+    /// wired into the live app. A mismatch here means <see cref="AudioWriter.ResolveEffectiveFormat"/>
+    /// (which trusts <see cref="SourceConfig.StreamType"/> unconditionally) is likely picking the
+    /// wrong codec for "original" output mode — see docs/HISTORY.md #62.</summary>
+    public static StreamTypeMismatch DetectStreamTypeMismatch(SourceConfig source)
+    {
+        if (string.IsNullOrWhiteSpace(source.Url)) return StreamTypeMismatch.None;
+        var urlLooksHls = source.Url.Contains(".m3u8", StringComparison.OrdinalIgnoreCase);
+        var typeIsHls = source.StreamType == "hls";
+        if (urlLooksHls && !typeIsHls) return StreamTypeMismatch.UrlLooksHlsButTypeIsNot;
+        if (!urlLooksHls && typeIsHls) return StreamTypeMismatch.TypeIsHlsButUrlDoesNot;
+        return StreamTypeMismatch.None;
+    }
+
     public static string FormatSource(ChannelConfig config)
     {
         var src = config.Source;

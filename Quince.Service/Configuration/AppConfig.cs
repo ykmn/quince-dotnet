@@ -27,6 +27,13 @@ public class AppConfig
     /// <summary>UI display language — "ru" or "en". Does not affect log messages, metadata, or
     /// channel config field names, only the interactive UI text served by <see cref="Services.LocalizationService"/>.</summary>
     public string UiLanguage { get; set; } = "ru";
+
+    /// <summary>How many seconds of audio <see cref="Audio.PlayoutBuffer"/> banks before releasing
+    /// anything to the level meter/browser listen-in (docs/HISTORY.md #61) — the fixed added latency
+    /// traded for hiding producer-side gaps (e.g. HLS's periodic wait for the next live segment) up
+    /// to this depth. Read fresh at each channel start (see <see cref="Audio.ChannelEngine"/>), not
+    /// applied to already-running channels until they restart.</summary>
+    public double PlayoutBufferSeconds { get; set; } = Audio.PlayoutBuffer.DefaultTargetDelaySeconds;
 }
 
 public class MeterColorsConfig

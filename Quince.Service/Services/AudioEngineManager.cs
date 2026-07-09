@@ -13,6 +13,7 @@ public class AudioEngineManager : IHostedService
     private readonly string _ffprobePath;
 
     public string FfmpegPath => _ffmpegPath;
+    public double PlayoutBufferSeconds => _appSettings.Current.PlayoutBufferSeconds;
 
     private readonly Dictionary<string, ChannelEngine> _engines = new();
     private readonly object _lock = new();
@@ -140,7 +141,8 @@ public class AudioEngineManager : IHostedService
                 () => _appSettings.Current.ReconnectDelaySeconds,
                 () => _appSettings.Current.ReconnectMaxAttempts,
                 () => _appSettings.Current.NewsKeywords,
-                text => PushMetadata(channelName, text));
+                text => PushMetadata(channelName, text),
+                () => _appSettings.Current.PlayoutBufferSeconds);
 
             _engines[channelName] = engine;
             try
