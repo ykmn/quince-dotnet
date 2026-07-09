@@ -37,8 +37,29 @@ public sealed class PlayoutBuffer
     private readonly ILogger _log;
     private readonly string _channelName;
     private readonly double _targetDelaySeconds;
-    private readonly Channel<AudioChunk> _output = Channel.CreateUnbounded<AudioChunk>(
-        new UnboundedChannelOptions { SingleReader = true, SingleWriter = true });
+
+    // Bounded with DropOldest — NOT unbounded — for a specific reason (docs/HISTORY.md #64): the
+    // consumer (LevelMeter's loop, or AudioStreamEndpoint's ffmpeg-encode-then-HTTP-write-to-browser
+    // chain) can momentarily fall behind real time for reasons entirely outside this class's control
+    // (a GC pause, ffmpeg process startup, the browser's own pre-buffering before it starts an
+    // <audio> stream, backpressure from a slow client network write). With an unbounded channel, any
+    // such stall queues up an ever-growing backlog that's never trimmed — the consumer eventually
+    // catches up but keeps replaying stale data forever, turning one transient hiccup into a
+    // permanent, compounding lag (this is what caused browser listen-in audio to drift tens of
+    // seconds behind the meter in the field). Capacity ~30 chunks (~3s at the ~93-100ms chunk size
+    // used throughout this pipeline) is enough slack to absorb ordinary scheduling jitter without
+    // dropping anything, while still bounding how far behind real time the output can silently get —
+    // once exceeded, the oldest not-yet-consumed chunk is dropped in favor of the newest, so the
+    // stream self-corrects back toward the intended TargetDelaySeconds lag instead of drifting
+    // further with every hiccup.
+    private const int OutputCapacity = 30;
+    private readonly Channel<AudioChunk> _output = Channel.CreateBounded<AudioChunk>(
+        new BoundedChannelOptions(OutputCapacity)
+        {
+            FullMode = BoundedChannelFullMode.DropOldest,
+            SingleReader = true,
+            SingleWriter = true,
+        });
 
     private readonly object _queueLock = new();
     private readonly Queue<AudioChunk> _queue = new();

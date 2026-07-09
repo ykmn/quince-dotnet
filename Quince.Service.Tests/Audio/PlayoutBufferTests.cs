@@ -13,6 +13,15 @@ public class PlayoutBufferTests
     private static AudioChunk MakeChunk(double seconds = 0.1) =>
         new(new float[(int)(seconds * SampleRate)], channels: 1);
 
+    // Same as MakeChunk but stamps an identifying marker in the first sample, so a test can tell
+    // which of several released chunks survived (used for the drop-oldest test below).
+    private static AudioChunk MakeMarkedChunk(double seconds, float marker)
+    {
+        var chunk = MakeChunk(seconds);
+        chunk.Samples[0] = marker;
+        return chunk;
+    }
+
     [Fact]
     public void ReleaseDue_BeforePriming_ReleasesNothing()
     {
@@ -86,5 +95,38 @@ public class PlayoutBufferTests
         // nothing due on this same tick.
         buffer.ReleaseDue();
         Assert.False(buffer.Reader.TryRead(out _), "Priming just completed — release clock hasn't advanced yet.");
+    }
+
+    [Fact]
+    public async Task ReleaseDue_ConsumerFallsBehind_DropsOldestKeepsNewestWithinCapacity()
+    {
+        // Regression test for docs/HISTORY.md #64: an unbounded output channel let a single slow
+        // consumer accumulate an ever-growing, never-trimmed backlog (observed in the field as
+        // browser listen-in audio drifting tens of seconds behind the meter). The output channel
+        // must instead drop the oldest not-yet-consumed chunks once its bounded capacity is
+        // exceeded, so the stream self-corrects back toward the target lag.
+        const double chunkSeconds = 0.01; // tiny chunks so a short real Task.Delay covers many of them
+        const int totalChunks = 50; // more than OutputCapacity (30) so some must be dropped
+        var source = Channel.CreateUnbounded<AudioChunk>();
+        var buffer = new PlayoutBuffer(source.Reader, SampleRate, NullLogger.Instance, targetDelaySeconds: 0.05);
+
+        for (var i = 0; i < totalChunks; i++)
+            buffer.Enqueue(MakeMarkedChunk(chunkSeconds, marker: i));
+
+        // Simulate a consumer that never reads from Reader while all this content becomes due —
+        // wait past the total content duration (50 * 10ms = 500ms) so a single ReleaseDue() call
+        // tries to hand off every remaining queued chunk to the (bounded) output channel at once.
+        await Task.Delay(600);
+        buffer.ReleaseDue();
+
+        var received = new List<float>();
+        while (buffer.Reader.TryRead(out var chunk)) received.Add(chunk.Samples[0]);
+
+        Assert.True(received.Count <= 30, $"Expected at most the bounded capacity (30), got {received.Count}.");
+        Assert.NotEmpty(received);
+        // The oldest markers (0..19) must have been dropped; the newest (up to 49) must survive, in order.
+        Assert.Equal(totalChunks - received.Count, (int)received[0]);
+        Assert.Equal(totalChunks - 1, (int)received[^1]);
+        Assert.Equal(received.Order(), received);
     }
 }

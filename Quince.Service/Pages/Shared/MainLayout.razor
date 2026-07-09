@@ -122,11 +122,21 @@
     private bool _confirmRestart;
     private readonly string _version = "v" + VersionInfo.Version;
 
+    // Braille "dots" spinner (same glyph set as common CLI spinners) shown in the status bar
+    // between clicking ▶ (AudioPlaybackService.Play) and the browser <audio> element actually
+    // starting to make sound — the gap is the PlayoutBuffer jitter buffer filling up.
+    private static readonly string[] BrailleFrames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+    private System.Threading.Timer? _bufferingTimer;
+    private int _brailleIndex;
+    private bool _buffering;
+    private DotNetObjectReference<MainLayout>? _dotNetRef;
+
     protected override void OnInitialized()
     {
         UiState.Changed += OnUiStateChanged;
         Loc.Changed += OnUiStateChanged;
         PlaybackService.Changed += OnPlaybackChanged;
+        _dotNetRef = DotNetObjectReference.Create(this);
     }
 
     private void OnUiStateChanged() => InvokeAsync(StateHasChanged);
@@ -141,11 +151,52 @@
         _ = InvokeAsync(async () =>
         {
             if (channel is null)
+            {
+                StopBuffering();
                 await JS.InvokeVoidAsync("quincePlayback.stop");
+            }
             else
-                await JS.InvokeVoidAsync("quincePlayback.play", $"/api/playback/stream/{Uri.EscapeDataString(channel)}");
+            {
+                StartBuffering();
+                await JS.InvokeVoidAsync("quincePlayback.play", $"/api/playback/stream/{Uri.EscapeDataString(channel)}", _dotNetRef);
+            }
         });
     }
+
+    private void StartBuffering()
+    {
+        _buffering = true;
+        _brailleIndex = 0;
+        UiState.SetStatusMessage(Loc.T("status.buffering", BrailleFrames[0]));
+        _bufferingTimer?.Dispose();
+        _bufferingTimer = new System.Threading.Timer(_ =>
+        {
+            _brailleIndex = (_brailleIndex + 1) % BrailleFrames.Length;
+            _ = InvokeAsync(() =>
+            {
+                if (_buffering) UiState.SetStatusMessage(Loc.T("status.buffering", BrailleFrames[_brailleIndex]));
+            });
+        }, null, 120, 120);
+    }
+
+    private void StopBuffering()
+    {
+        if (!_buffering) return;
+        _buffering = false;
+        _bufferingTimer?.Dispose();
+        _bufferingTimer = null;
+        UiState.ClearStatusMessage();
+    }
+
+    /// <summary>Called from playback.js when the &lt;audio&gt; element's "playing" event fires —
+    /// the jitter buffer has enough data and sound is actually reaching the speakers now.</summary>
+    [JSInvokable]
+    public void OnPlaybackStarted() => InvokeAsync(StopBuffering);
+
+    /// <summary>Called from playback.js on the &lt;audio&gt; element's "error" event, so a stream
+    /// that never buffers (bad URL, source down) doesn't leave the spinner running forever.</summary>
+    [JSInvokable]
+    public void OnPlaybackError() => InvokeAsync(StopBuffering);
 
     private void ToggleMenu() => _menuOpen = !_menuOpen;
     private void CloseMenu() => _menuOpen = false;
@@ -233,5 +284,7 @@
         UiState.Changed -= OnUiStateChanged;
         Loc.Changed -= OnUiStateChanged;
         PlaybackService.Changed -= OnPlaybackChanged;
+        _bufferingTimer?.Dispose();
+        _dotNetRef?.Dispose();
     }
 }

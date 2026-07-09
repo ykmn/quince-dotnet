@@ -124,7 +124,10 @@ public class AudioEngineManager : IHostedService
         return stopped;
     }
 
-    public void Start(string channelName)
+    /// <param name="suppressRecording">Passed straight through to <see cref="ChannelEngine.Start"/> —
+    /// see its doc comment. Used by <see cref="AudioPlaybackService"/>'s auto-start-for-listen-in so
+    /// that path never silently begins writing a real recording file.</param>
+    public void Start(string channelName, bool suppressRecording = false)
     {
         lock (_lock)
         {
@@ -147,7 +150,7 @@ public class AudioEngineManager : IHostedService
             _engines[channelName] = engine;
             try
             {
-                engine.Start();
+                engine.Start(suppressRecording);
             }
             catch (Exception ex)
             {

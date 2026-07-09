@@ -1,4 +1,4 @@
-﻿# Moscow Radio Stations — HLS Streams & Metadata
+# Moscow Radio Stations — HLS Streams & Metadata
 
 > Source: `https://api.radioplayer.ru/api/web/site/stations?region=1`
 > Retrieved: 2026-07-07 | Total stations: 161

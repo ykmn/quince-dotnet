@@ -6,41 +6,45 @@
 @inject LocalizationService Loc
 @implements IDisposable
 
-<div class="filter-row">
-    <input @bind="FilterText" @bind:event="oninput" placeholder="@Loc["index.filterPlaceholder"]"
-           title="@Loc["index.filterTitle"]" />
+<div class="list-toolbar">
+    <div class="filter-row">
+        <input @bind="FilterText" @bind:event="oninput" placeholder="@Loc["index.filterPlaceholder"]"
+               title="@Loc["index.filterTitle"]" />
+    </div>
+
+    @if (!string.IsNullOrEmpty(UiState.StatusMessage))
+    {
+        <div class="status-bar">
+            <span>@UiState.StatusMessage</span>
+            <button type="button" class="status-bar-close" @onclick="UiState.ClearStatusMessage" title="@Loc["index.statusHideTitle"]">✕</button>
+        </div>
+    }
 </div>
 
-@if (!string.IsNullOrEmpty(UiState.StatusMessage))
-{
-    <div class="status-bar">
-        <span>@UiState.StatusMessage</span>
-        <button type="button" class="status-bar-close" @onclick="UiState.ClearStatusMessage" title="@Loc["index.statusHideTitle"]">✕</button>
-    </div>
-}
-
-@if (!FilteredChannels.Any())
-{
-    <p class="empty-state">
-        @if (!ChannelManager.Channels.Any())
-        {
-            <text>@Loc["index.emptyNoChannels"]</text>
-        }
-        else
-        {
-            <text>@Loc.T("index.emptyFiltered", FilterText)</text>
-        }
-    </p>
-}
-else
-{
-    <div class="channel-list">
-        @foreach (var ch in FilteredChannels)
-        {
-            <ChannelCard @key="ch.Filename" Config="ch" />
-        }
-    </div>
-}
+<div class="channel-scroll">
+    @if (!FilteredChannels.Any())
+    {
+        <p class="empty-state">
+            @if (!ChannelManager.Channels.Any())
+            {
+                <text>@Loc["index.emptyNoChannels"]</text>
+            }
+            else
+            {
+                <text>@Loc.T("index.emptyFiltered", FilterText)</text>
+            }
+        </p>
+    }
+    else
+    {
+        <div class="channel-list">
+            @foreach (var ch in FilteredChannels)
+            {
+                <ChannelCard @key="ch.Filename" Config="ch" />
+            }
+        </div>
+    }
+</div>
 
 <div class="app-footer">@Loc.T("index.footerCount", ChannelManager.Channels.Count)</div>
 

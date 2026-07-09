@@ -29,21 +29,21 @@
             <div class="reconnect-label">@Loc.T("channelCard.reconnectLabel", _status.ReconnectAttempt)</div>
         }
         <div class="spacer"></div>
-        <button class="btn @(_status.IsRecording ? "btn-stop" : "btn-start")"
-                title="@(_status.IsRecording ? Loc["channelCard.stopTitle"] : Loc["channelCard.startTitle"])"
+        <button class="btn @(_status.IsFileRecording ? "btn-stop" : "btn-start")"
+                title="@(_status.IsFileRecording ? Loc["channelCard.stopTitle"] : Loc["channelCard.startTitle"])"
                 disabled="@(!IsEligibleType)"
                 @onclick="ToggleRecording">
-            @(_status.IsRecording ? Loc["channelCard.stop"] : Loc["channelCard.start"])
+            @(_status.IsFileRecording ? Loc["channelCard.stop"] : Loc["channelCard.start"])
         </button>
         <button class="btn @(IsPlayingThis ? "btn-playback-stop" : "btn-small")" title="@(IsPlayingThis ? Loc["channelCard.stopPlaybackTitle"] : Loc["channelCard.playTitle"])"
                 disabled="@(!IsEligibleType)"
                 @onclick="TogglePlayback">
             @(IsPlayingThis ? "⏹" : "▶")
         </button>
-        <button class="btn btn-small" title="@Loc["channelCard.editTitle"]" @onclick="Edit">✎</button>
+        <button class="btn btn-small btn-sep" title="@Loc["channelCard.editTitle"]" @onclick="Edit">✎</button>
         <button class="btn btn-small" title="@Loc["channelCard.cloneTitle"]" @onclick="Clone">⧉</button>
-        <button class="btn btn-meters" title="@Loc["channelCard.metersTitle"]" @onclick="OpenIndicators">@Loc["channelCard.meters"]</button>
-        <button class="btn btn-delete" title="@Loc["channelCard.deleteTitle"]" @onclick="Delete">✕</button>
+        <button class="btn btn-meters btn-sep" title="@Loc["channelCard.metersTitle"]" @onclick="OpenIndicators">@Loc["channelCard.meters"]</button>
+        <button class="btn btn-delete btn-sep" title="@Loc["channelCard.deleteTitle"]" @onclick="Delete">✕</button>
     </div>
     <div class="channel-info-row">
         <div class="channel-info-col">
@@ -73,16 +73,16 @@
     private string? _metadataText;
     private bool _disposed;
 
-    // Green while recording (including during a transient reconnect attempt — IsRecording stays
-    // true for those, the "Реконнект #N" label next to the name already surfaces that separately);
-    // grey once stopped normally; red only when the channel stopped itself after exhausting its
-    // reconnect-attempt budget (EngineStatus.HasError), until it's started again.
-    // Mirrors StatusDotClass below so the card's left border reinforces the same
-    // recording/error/stopped state at a glance, without needing to look at the dot itself.
+    // Green while actually writing to disk (IsFileRecording, not just IsRecording — a channel
+    // auto-started only for listen-in has IsRecording true but should not look like it's recording);
+    // yellow while the engine is up only for listen-in playback; red once the channel stopped
+    // itself after exhausting its reconnect-attempt budget (EngineStatus.HasError), until it's
+    // started again.
     private string StatusBorderClass => _status switch
     {
-        { IsRecording: true } => "is-recording",
+        { IsFileRecording: true } => "is-recording",
         { HasError: true } => "has-error",
+        _ when IsPlayingThis => "is-listening",
         _ => "",
     };
 
@@ -229,10 +229,25 @@
     private void ToggleRecording()
     {
         if (!IsEligibleType) return;
-        if (_status.IsRecording)
+        if (_status.IsFileRecording)
+        {
             EngineManager.Stop(Config.Name);
-        else
+        }
+        else if (_status.IsRecording)
+        {
+            // Engine is already running, but only because AudioPlaybackService auto-started it for
+            // listen-in (suppressRecording: true) — AudioEngineManager.Start() no-ops on an already-
+            // running channel, so a plain Start() here would silently do nothing. Restart it properly
+            // with recording enabled instead. This briefly interrupts any in-progress listen-in for
+            // this channel — an accepted rough edge for the rare case of clicking "Start recording"
+            // at the same moment someone's previewing a stopped channel's audio.
+            EngineManager.Stop(Config.Name);
             EngineManager.Start(Config.Name);
+        }
+        else
+        {
+            EngineManager.Start(Config.Name);
+        }
     }
 
     private void Edit() => UiState.OpenEditChannel(Config);

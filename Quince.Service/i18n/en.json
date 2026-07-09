@@ -44,6 +44,7 @@
   "status.stoppedAll": "Channels stopped: {0}.",
   "status.restarting": "Restarting application…",
   "status.languageSaveError": "Failed to save language choice: {0}",
+  "status.buffering": "Buffering {0}",
 
   "index.filterPlaceholder": "Filter by channel name…",
   "index.filterTitle": "Show only channels whose name contains the typed text (case-insensitive).",

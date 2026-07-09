@@ -43,8 +43,18 @@
 html, body {
     margin: 0;
     padding: 0;
+    height: 100%;
     background: #f3f4f6;
     font-family: 'Nunito', -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+/* body is the Blazor render root (App.razor has no wrapping element) — laying it out as a flex
+   column with overflow hidden keeps .topbar and the indicators panel fixed on screen and confines
+   scrolling to .app-main below, instead of the whole page (including the header) scrolling. */
+body {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
 }
 
 .topbar {
@@ -57,6 +67,7 @@ html, body {
     border-bottom: 1px solid var(--quince-yellow-border);
     position: relative;
     z-index: 10;
+    flex: 0 0 auto;
 }
 
 .app-brand {
@@ -329,7 +340,11 @@ html, body {
 }
 
 .channel-card.is-recording {
-    border-left: 3px solid #2563eb;
+    border-left: 3px solid #16a34a;
+}
+
+.channel-card.is-listening {
+    border-left: 3px solid #ca8a04;
 }
 
 .channel-card.has-error {
@@ -415,12 +430,12 @@ html, body {
     padding: 0 8px;
 }
 
-/* ▶/⏹ playback-monitoring button while a channel is playing to the audio output — light pink
+/* ▶/⏹ playback-monitoring button while a channel is playing to the audio output — pale orange
    distinguishes it from the (red) recording Стоп button and the (grey) idle ▶ state. */
 .btn-playback-stop {
-    background: #fce7f3;
-    color: #be185d;
-    border: 1px solid #fbcfe8;
+    background: #ffedd5;
+    color: #c2410c;
+    border: 1px solid #fed7aa;
     padding: 0 8px;
 }
 
@@ -433,6 +448,13 @@ html, body {
 .btn:disabled {
     opacity: 0.5;
     cursor: not-allowed;
+}
+
+/* Groups channel-row1 buttons by purpose: [Старт/Стоп, Прослушка] — 16px — [Редактировать,
+   Клонировать] — 16px — [Индикаторы] — 16px — [Удалить]. .channel-row1's own 6px flex gap already
+   covers the space before each .btn-sep button, so only 10px more is added here (6 + 10 = 16). */
+.btn-sep {
+    margin-left: 10px;
 }
 
 .channel-row2, .channel-row3, .channel-row-metadata {
@@ -522,13 +544,12 @@ html, body {
 }
 
 .app-footer {
+    flex: 0 0 auto;
     background: #ffffff;
     border-top: 1px solid #e5e7eb;
     color: #9ca3af;
     font-size: 11px;
     padding: 4px 16px;
-    position: sticky;
-    bottom: 0;
 }
 
 /* ── Dialogs (edit/settings/indicators/readme/delete-confirm) ──── */
@@ -805,17 +826,37 @@ html, body {
 .app-body-row {
     display: flex;
     align-items: flex-start;
+    flex: 1 1 auto;
+    min-height: 0;
 }
 
+/* Same fixed-header/scrolling-body split as body/.topbar/.app-main (see comment above) applied one
+   level deeper: .list-toolbar (filter + status line) stays fixed, only .channel-scroll scrolls. */
 .app-main {
+    display: flex;
+    flex-direction: column;
     flex: 1 1 auto;
     min-width: 0;
+    height: 100%;
+    overflow: hidden;
+    box-sizing: border-box;
+}
+
+.list-toolbar {
+    flex: 0 0 auto;
+}
+
+.channel-scroll {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
 }
 
 /* ── Per-channel indicators side panel (▦ button on a channel card) ────
    A normal flex sibling of .app-main (not an overlay) — it shrinks the card list's
-   available width instead of floating on top of it. `sticky` keeps it pinned to the
-   viewport while the card list scrolls independently. */
+   available width instead of floating on top of it. Its own height already spans the full
+   body (calc(100vh - 100px)), so it stays fully visible while .app-main scrolls independently;
+   `sticky` is kept as a defensive fallback in case some ancestor's overflow ever changes. */
 
 .indicators-panel {
     position: sticky;
@@ -837,6 +878,12 @@ html, body {
 @media (max-width: 640px) {
     .app-body-row {
         flex-direction: column;
+    }
+
+    .app-main {
+        height: auto;
+        flex: 1 1 auto;
+        min-height: 0;
     }
 
     .indicators-panel {
@@ -1049,7 +1096,11 @@ html, body {
     display: flex;
     flex-direction: column;
     gap: 2px;
-    max-height: 40vh;
+    /* Fixed instead of viewport-relative (was 40vh) — on a tall/maximized window 40vh could exceed
+       the height of a real folder listing (e.g. ~30 recording-station subfolders), so the list never
+       actually needed to scroll and just kept growing with the dialog instead of staying a compact,
+       consistently-sized scrollable panel. */
+    max-height: 320px;
     overflow-y: auto;
     border: 1px solid #e5e7eb;
     border-radius: 8px;

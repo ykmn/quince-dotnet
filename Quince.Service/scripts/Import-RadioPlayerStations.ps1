@@ -43,6 +43,9 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
+# [System.Text.Encoding]::UTF8 writes a BOM; File.WriteAllText needs this instead.
+$Utf8NoBom = [System.Text.UTF8Encoding]::new($false)
+
 $ScriptRoot  = Split-Path -Parent $MyInvocation.MyCommand.Path
 #$ProjectRoot = Split-Path -Parent $ScriptRoot
 $ProjectRoot = $ScriptRoot
@@ -183,7 +186,7 @@ function Update-MoscowMd {
         [void]$sb.AppendLine("| $($r.Name) | $sc | $mc |")
     }
 
-    [System.IO.File]::WriteAllText($OutPath, $sb.ToString(), [System.Text.Encoding]::UTF8)
+    [System.IO.File]::WriteAllText($OutPath, $sb.ToString(), $Utf8NoBom)
     Write-Host "MOSCOW.md обновлён: $nStream с потоком, $nMeta с метаданными → $OutPath"
 }
 
@@ -261,7 +264,7 @@ function New-Configs {
             -MetaUrl    $info.MetaUrl `
             -StreamType $info.StreamType
 
-        [System.IO.File]::WriteAllText($target, $yaml, [System.Text.Encoding]::UTF8)
+        [System.IO.File]::WriteAllText($target, $yaml, $Utf8NoBom)
         Write-Host "  создан: $filename"
         $created++
     }

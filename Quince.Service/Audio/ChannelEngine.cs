@@ -77,7 +77,12 @@ public sealed class ChannelEngine
 
     public void Unsubscribe(string consumerId) => _capture?.Unsubscribe(consumerId);
 
-    public void Start()
+    /// <param name="suppressRecording">When true, skip creating the <see cref="AudioWriter"/> even
+    /// if <see cref="ChannelConfig.RecordAudio"/> is set — used by
+    /// <see cref="Services.AudioPlaybackService"/>'s temporary auto-start for browser listen-in on a
+    /// stopped channel, which should capture just enough to stream audio without silently starting a
+    /// real disk recording as a side effect of clicking ▶ (docs/HISTORY.md #64).</param>
+    public void Start(bool suppressRecording = false)
     {
         var log = _loggerFactory.CreateLogger("ChannelEngine");
         using var scope = log.BeginScope(new Dictionary<string, object> { ["Channel"] = _config.Name });
@@ -97,7 +102,7 @@ public sealed class ChannelEngine
         var meterReader = _capture.Subscribe("meter");
         _meterBuffer = new PlayoutBuffer(meterReader, _capture.SampleRate, _loggerFactory.CreateLogger("PlayoutBuffer"), _config.Name, _getPlayoutBufferSeconds());
 
-        if (_config.RecordAudio)
+        if (_config.RecordAudio && !suppressRecording)
         {
             var writerReader = _capture.Subscribe("writer");
             _writer = new AudioWriter(_config, writerReader, _capture.SampleRate, _capture.Channels,
@@ -146,11 +151,11 @@ public sealed class ChannelEngine
         EngineStatus newStatus;
         lock (_statusLock)
         {
-            newStatus = new EngineStatus(IsRecording: true);
+            newStatus = new EngineStatus(IsRecording: true, IsFileRecording: _writer != null);
             _status = newStatus;
         }
         _onStatusChange(newStatus);
-        log.LogInformation("Запись начата");
+        log.LogInformation(_writer != null ? "Запись начата" : "Захват запущен (без записи в файл)");
     }
 
     public void Stop() => Stop(hasError: false);

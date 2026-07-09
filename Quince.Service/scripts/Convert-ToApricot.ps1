@@ -61,6 +61,9 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
+# [System.Text.Encoding]::UTF8 writes a BOM; File.WriteAllLines/WriteAllText need this instead.
+$Utf8NoBom = [System.Text.UTF8Encoding]::new($false)
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -335,7 +338,7 @@ foreach ($file in $files) {
         $mt.Add('  N: "Новости"')
 
         [System.IO.File]::WriteAllLines(
-            (Join-Path $PlaylogsDir "$id.yaml"), $mt, [System.Text.Encoding]::UTF8)
+            (Join-Path $PlaylogsDir "$id.yaml"), $mt, $Utf8NoBom)
 
         Write-Host "  [OK] $($file.Name)  ->  channels[$id] + playlogs/$id.yaml" -ForegroundColor Green
     } else {
@@ -359,7 +362,7 @@ foreach ($block in $stationBlocks) {
 }
 
 $stationsPath = Join-Path $StationsDir "$GroupId.yaml"
-[System.IO.File]::WriteAllLines($stationsPath, $stationsFile, [System.Text.Encoding]::UTF8)
+[System.IO.File]::WriteAllLines($stationsPath, $stationsFile, $Utf8NoBom)
 
 Write-Host ""
 Write-Host "  Готово: $converted конвертировано, $skipped пропущено." -ForegroundColor Cyan

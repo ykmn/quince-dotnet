@@ -45,7 +45,10 @@ public sealed class AudioPlaybackService : IDisposable
         var autoStarted = false;
         if (!_engineManager.IsRunning(channelName))
         {
-            _engineManager.Start(channelName);
+            // suppressRecording: true — this auto-start exists purely to have audio to stream for
+            // listen-in; it must not silently begin writing a real recording file as a side effect
+            // of clicking ▶ on a stopped channel (docs/HISTORY.md #64).
+            _engineManager.Start(channelName, suppressRecording: true);
             autoStarted = true;
         }
 
