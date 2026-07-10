@@ -1,8 +1,0 @@
-log_level: DEBUG
-log_retention_days: 30
-meter_colors:
-  zone_yellow_db: -12.0
-  zone_red_db: -3.0
-  color_green: '#1d761d'
-  color_yellow: '#ccaa00'
-  color_red: '#cc1818'

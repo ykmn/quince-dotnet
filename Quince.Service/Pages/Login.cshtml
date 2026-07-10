@@ -1,0 +1,131 @@
+@page "/login"
+@namespace Quince.Service.Pages
+@addTagHelper *, Microsoft.AspNetCore.Mvc.TagHelpers
+@{
+    Layout = null;
+}
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Вход — Айва</title>
+    <link rel="icon" type="image/svg+xml" href="icon.svg" />
+    <style>
+        body {
+            margin: 0;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: #f3f4f6;
+            font-family: -apple-system, Segoe UI, Roboto, sans-serif;
+        }
+        .login-box {
+            background: #ffffff;
+            border-radius: 8px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.15);
+            padding: 28px 32px;
+            width: 280px;
+        }
+        .login-brand {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+        .login-brand span {
+            font-size: 22px;
+            font-weight: 700;
+            color: #111827;
+        }
+        label {
+            display: block;
+            font-size: 12px;
+            color: #6b7280;
+            margin: 12px 0 4px;
+        }
+        input[type="text"], input[type="password"] {
+            width: 100%;
+            box-sizing: border-box;
+            padding: 8px 10px;
+            border: 1px solid #d1d5db;
+            border-radius: 6px;
+            font-size: 14px;
+        }
+        button[type="submit"] {
+            width: 100%;
+            margin-top: 20px;
+            height: 36px;
+            border: none;
+            border-radius: 6px;
+            background: #8A6D00;
+            color: #ffffff;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+        }
+        button[type="submit"]:disabled {
+            opacity: 0.6;
+            cursor: default;
+        }
+        .login-error {
+            margin-top: 12px;
+            font-size: 12px;
+            color: #b91c1c;
+            white-space: pre-line;
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="login-box">
+        <div class="login-brand">
+            <img src="icon.svg" width="32" height="32" alt="" />
+            <span>Айва</span>
+        </div>
+        <form id="login-form">
+            <label for="username">Пользователь</label>
+            <input type="text" id="username" name="username" autocomplete="username" autofocus />
+            <label for="password">Пароль</label>
+            <input type="password" id="password" name="password" autocomplete="current-password" />
+            <button type="submit" id="submit-btn">Войти</button>
+            <div class="login-error" id="login-error"></div>
+        </form>
+    </div>
+    <script>
+        const form = document.getElementById('login-form');
+        const errorBox = document.getElementById('login-error');
+        const submitBtn = document.getElementById('submit-btn');
+
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            errorBox.style.display = 'none';
+            submitBtn.disabled = true;
+            try {
+                const res = await fetch('/api/auth/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        username: document.getElementById('username').value,
+                        password: document.getElementById('password').value,
+                    }),
+                });
+                if (!res.ok) {
+                    const data = await res.json().catch(() => ({}));
+                    errorBox.textContent = data.detail || 'Не удалось войти.';
+                    errorBox.style.display = 'block';
+                    submitBtn.disabled = false;
+                    return;
+                }
+                const params = new URLSearchParams(window.location.search);
+                window.location.href = params.get('next') || '/';
+            } catch (err) {
+                errorBox.textContent = 'Ошибка сети — проверьте соединение и попробуйте снова.';
+                errorBox.style.display = 'block';
+                submitBtn.disabled = false;
+            }
+        });
+    </script>
+</body>
+</html>

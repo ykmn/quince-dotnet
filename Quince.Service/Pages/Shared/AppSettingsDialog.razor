@@ -14,6 +14,9 @@
         }
 
         <div class="form-grid">
+            <label title="@Loc["appSettings.showTpIndicatorsTitle"]">@Loc["appSettings.showTpIndicatorsLabel"]</label>
+            <input type="checkbox" @bind="_draft.ShowTpIndicators" title="@Loc["appSettings.showTpIndicatorsTitle"]" />
+
             <label>@Loc["appSettings.logLevelLabel"]</label>
             <select @bind="_draft.LogLevel">
                 <option value="DEBUG">DEBUG</option>
@@ -86,6 +89,7 @@
             ReconnectDelaySeconds = current.ReconnectDelaySeconds,
             ReconnectMaxAttempts = current.ReconnectMaxAttempts,
             PlayoutBufferSeconds = current.PlayoutBufferSeconds,
+            ShowTpIndicators = current.ShowTpIndicators,
             MeterColors = new MeterColorsConfig
             {
                 ZoneYellowDb = current.MeterColors.ZoneYellowDb,

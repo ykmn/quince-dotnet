@@ -19,11 +19,13 @@
     <PackageReference Include="NAudio" Version="2.2.1" />
     <PackageReference Include="YamlDotNet" Version="15.3.0" />
     <PackageReference Include="BCrypt.Net-Next" Version="4.0.3" />
+    <PackageReference Include="System.DirectoryServices.Protocols" Version="8.0.0" />
     <PackageReference Include="Markdig" Version="0.37.0" />
   </ItemGroup>
 
   <ItemGroup>
     <Content Include="config\**" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="config.demo\**" CopyToOutputDirectory="PreserveNewest" />
     <Content Update="i18n\**" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="tools\**" CopyToOutputDirectory="PreserveNewest" />
     <!-- Universal CRT app-local deployment (Microsoft-documented method) — Windows 10/11 ships these

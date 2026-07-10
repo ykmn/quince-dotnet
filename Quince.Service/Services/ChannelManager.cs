@@ -4,9 +4,17 @@ namespace Quince.Service.Services;
 
 public class ChannelManager : IHostedService
 {
+    /// <summary>Config file names reserved for app-level settings/auth — never treated as a channel
+    /// config even if found loose in <see cref="_configDir"/> by <see cref="MigrateLooseStationFiles"/>.</summary>
+    private static readonly HashSet<string> ReservedConfigFilenames = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "settings.yaml", "app.yaml", "ldap.yaml", "users.yaml", "secret.yaml", "sessions.yaml",
+    };
+
     private readonly YamlConfigLoader _loader;
     private readonly ILogger<ChannelManager> _logger;
     private readonly string _configDir;
+    private readonly string _stationsDir;
     private readonly object _lock = new();
     private readonly List<ChannelConfig> _channels = new();
 
@@ -31,17 +39,20 @@ public class ChannelManager : IHostedService
         _loader = loader;
         _logger = logger;
         _configDir = PathResolver.Resolve(configuration["ConfigDir"], "config");
+        _stationsDir = Path.Combine(_configDir, "stations");
     }
 
     public Task StartAsync(CancellationToken cancellationToken)
     {
         _logger.LogInformation("Айва стартует, папка конфигов: {Dir}", _configDir);
         Directory.CreateDirectory(_configDir);
+        MigrateLooseStationFiles();
+        Directory.CreateDirectory(_stationsDir);
 
         lock (_lock)
         {
             _channels.Clear();
-            foreach (var config in _loader.LoadAll(_configDir))
+            foreach (var config in _loader.LoadAll(_stationsDir))
             {
                 _channels.Add(config);
                 using (_logger.BeginScope(new Dictionary<string, object> { ["Channel"] = config.Name }))
@@ -74,7 +85,7 @@ public class ChannelManager : IHostedService
         lock (_lock)
         {
             config.Filename = GenerateFilenameLocked(config.Name);
-            _loader.Save(_configDir, config);
+            _loader.Save(_stationsDir, config);
             _channels.Add(config);
             using (_logger.BeginScope(new Dictionary<string, object> { ["Channel"] = config.Name }))
                 _logger.LogInformation("Канал создан ({File})", config.Filename);
@@ -93,7 +104,7 @@ public class ChannelManager : IHostedService
             old = _channels[index];
 
             updated.Filename = filename;
-            _loader.Save(_configDir, updated);
+            _loader.Save(_stationsDir, updated);
             _channels[index] = updated;
             using (_logger.BeginScope(new Dictionary<string, object> { ["Channel"] = updated.Name }))
                 _logger.LogInformation("Канал обновлён ({File})", filename);
@@ -113,7 +124,7 @@ public class ChannelManager : IHostedService
             clone.Name = MakeUniqueNameLocked(source.Name + " (копия)");
             clone.Filename = GenerateFilenameLocked(clone.Name);
             clone.AutoStart = false; // don't race two engines against the same source right after cloning
-            _loader.Save(_configDir, clone);
+            _loader.Save(_stationsDir, clone);
             _channels.Add(clone);
             using (_logger.BeginScope(new Dictionary<string, object> { ["Channel"] = clone.Name }))
                 _logger.LogInformation("Канал клонирован из '{Source}' ({File})", source.Name, clone.Filename);
@@ -131,7 +142,7 @@ public class ChannelManager : IHostedService
             if (index < 0) return;
             removed = _channels[index];
             _channels.RemoveAt(index);
-            var path = Path.Combine(_configDir, filename);
+            var path = Path.Combine(_stationsDir, filename);
             using (_logger.BeginScope(new Dictionary<string, object> { ["Channel"] = removed.Name }))
             {
                 try { File.Delete(path); }
@@ -150,7 +161,7 @@ public class ChannelManager : IHostedService
         List<ChannelConfig> fresh;
         try
         {
-            fresh = _loader.LoadAll(_configDir).ToList();
+            fresh = _loader.LoadAll(_stationsDir).ToList();
         }
         catch (Exception ex)
         {
@@ -229,5 +240,31 @@ public class ChannelManager : IHostedService
         var invalid = Path.GetInvalidFileNameChars();
         var chars = name.Trim().Select(c => invalid.Contains(c) ? '_' : c).ToArray();
         return new string(chars);
+    }
+
+    /// <summary>One-time upgrade path: channel configs used to live directly in <see cref="_configDir"/>
+    /// (alongside app.yaml/settings.yaml); they now live in <see cref="_stationsDir"/>. Moves any loose
+    /// *.yaml still sitting in configDir (skipping <see cref="ReservedConfigFilenames"/>) into stations/
+    /// on first run after upgrade, so an already-deployed instance keeps working without manual
+    /// intervention. No-ops once stations/ already exists (or configDir has nothing to move).</summary>
+    private void MigrateLooseStationFiles()
+    {
+        if (Directory.Exists(_stationsDir)) return;
+
+        var loose = Directory.Exists(_configDir)
+            ? Directory.EnumerateFiles(_configDir, "*.yaml")
+                .Where(f => !ReservedConfigFilenames.Contains(Path.GetFileName(f)))
+                .ToList()
+            : new List<string>();
+
+        if (loose.Count == 0) return;
+
+        Directory.CreateDirectory(_stationsDir);
+        foreach (var file in loose)
+        {
+            var dest = Path.Combine(_stationsDir, Path.GetFileName(file));
+            File.Move(file, dest);
+        }
+        _logger.LogInformation("Конфиги каналов перенесены в {Dir} ({Count} шт.)", _stationsDir, loose.Count);
     }
 }

@@ -1,11 +1,30 @@
 @using Quince.Service.Services
+@using Quince.Service.Services.Auth
 @inject LocalizationService Loc
 
-<Router AppAssembly="@typeof(App).Assembly">
-    <Found Context="routeData">
-        <RouteView RouteData="@routeData" DefaultLayout="@typeof(MainLayout)" />
-    </Found>
-    <NotFound>
-        <p>@Loc["app.notFound"]</p>
-    </NotFound>
-</Router>
+<CascadingValue Value="_currentUser">
+    <Router AppAssembly="@typeof(App).Assembly">
+        <Found Context="routeData">
+            <RouteView RouteData="@routeData" DefaultLayout="@typeof(MainLayout)" />
+        </Found>
+        <NotFound>
+            <p>@Loc["app.notFound"]</p>
+        </NotFound>
+    </Router>
+</CascadingValue>
+
+@code {
+    // Set from _Host.cshtml's root-component parameters (itself reading HttpContext.Items, populated
+    // by the auth middleware) — see CurrentUserContext for why this travels as a cascading value
+    // rather than a DI-registered scoped service.
+    [Parameter] public bool AuthRequired { get; set; }
+    [Parameter] public string? Username { get; set; }
+    [Parameter] public bool IsAdmin { get; set; }
+
+    private CurrentUserContext _currentUser = new();
+
+    protected override void OnParametersSet()
+    {
+        _currentUser = new CurrentUserContext { AuthRequired = AuthRequired, Username = Username, IsAdmin = IsAdmin };
+    }
+}

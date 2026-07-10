@@ -217,7 +217,12 @@ Write-Host "  Группа станций : $GroupId ($GroupName)"
 if ($Filter -ne '*') { Write-Host "  Фильтр         : $Filter" }
 Write-Host ""
 
-$files     = Get-ChildItem -Path $InputDir -Filter '*.yaml' | Where-Object { $_.Name -ne 'app.yaml' }
+# Channel configs moved from directly under config/ into config/stations/ (see docs/HISTORY.md) —
+# prefer the new layout, fall back to the old flat layout for a not-yet-migrated -InputDir.
+$StationsInputDir = Join-Path $InputDir 'stations'
+$ChannelSourceDir = if (Test-Path $StationsInputDir -PathType Container) { $StationsInputDir } else { $InputDir }
+$files     = Get-ChildItem -Path $ChannelSourceDir -Filter '*.yaml' |
+    Where-Object { $_.Name -notin @('app.yaml', 'settings.yaml', 'ldap.yaml', 'users.yaml', 'secret.yaml', 'sessions.yaml') }
 $converted = 0
 $skipped   = 0
 

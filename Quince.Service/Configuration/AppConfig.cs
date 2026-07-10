@@ -28,12 +28,23 @@ public class AppConfig
     /// channel config field names, only the interactive UI text served by <see cref="Services.LocalizationService"/>.</summary>
     public string UiLanguage { get; set; } = "ru";
 
+    /// <summary>Whether channel cards show their True Peak meter (<c>ChannelCard</c>'s level-widget).
+    /// Off by default — when off, the card doesn't just hide the meter, it also stops reacting to
+    /// level updates for it, so the per-card indicator module does no work at all. The docked
+    /// per-channel indicators panel (▦ button) is unaffected either way.</summary>
+    public bool ShowTpIndicators { get; set; } = false;
+
     /// <summary>How many seconds of audio <see cref="Audio.PlayoutBuffer"/> banks before releasing
     /// anything to the level meter/browser listen-in (docs/HISTORY.md #61) — the fixed added latency
     /// traded for hiding producer-side gaps (e.g. HLS's periodic wait for the next live segment) up
     /// to this depth. Read fresh at each channel start (see <see cref="Audio.ChannelEngine"/>), not
     /// applied to already-running channels until they restart.</summary>
     public double PlayoutBufferSeconds { get; set; } = Audio.PlayoutBuffer.DefaultTargetDelaySeconds;
+
+    /// <summary>How long a login session stays valid (both the cookie's max-age and the server-side
+    /// session record) — only meaningful when config/ldap.yaml enables authentication. Default: 1 week,
+    /// same as apricot2.</summary>
+    public int AuthSessionTtlSeconds { get; set; } = 7 * 24 * 3600;
 }
 
 public class MeterColorsConfig

@@ -22,6 +22,17 @@ public class ChannelUiState
     public bool SettingsOpen { get; private set; }
     public bool ReadmeOpen { get; private set; }
 
+    /// <summary>Whether the source URL / save-path text on every channel card is masked (behind
+    /// `***`) — a single flag shared by all cards (not per-card, not per-field) so clicking any one
+    /// card's URL or path hides/reveals it everywhere at once, e.g. right before screen-sharing.</summary>
+    public bool ValuesMasked { get; private set; }
+
+    public void ToggleValuesMasked()
+    {
+        ValuesMasked = !ValuesMasked;
+        Notify();
+    }
+
     /// <summary>Shown under the filter field on the channel list — result of the last
     /// refresh-config/restart/start-all/stop-all menu action.</summary>
     public string? StatusMessage { get; private set; }

@@ -92,14 +92,25 @@ public class YamlConfigLoader
 
     public void SaveApp(string configDir, AppConfig config)
     {
-        var path = Path.Combine(configDir, "app.yaml");
+        var path = Path.Combine(configDir, "settings.yaml");
         var text = _serializer.Serialize(config);
         File.WriteAllText(path, text);
     }
 
+    /// <summary>settings.yaml was previously named app.yaml — on an already-deployed instance, rename
+    /// the old file in place the first time it's found so upgrades don't lose existing settings.</summary>
+    private static void MigrateLegacyAppYaml(string configDir)
+    {
+        var oldPath = Path.Combine(configDir, "app.yaml");
+        var newPath = Path.Combine(configDir, "settings.yaml");
+        if (File.Exists(oldPath) && !File.Exists(newPath))
+            File.Move(oldPath, newPath);
+    }
+
     public AppConfig LoadApp(string configDir)
     {
-        var path = Path.Combine(configDir, "app.yaml");
+        MigrateLegacyAppYaml(configDir);
+        var path = Path.Combine(configDir, "settings.yaml");
         if (!File.Exists(path))
             return new AppConfig();
 
@@ -112,6 +123,104 @@ public class YamlConfigLoader
         {
             LogLoadError(path, ex);
             return new AppConfig();
+        }
+    }
+
+    /// <summary>Matches a line whose key is "local" or "ldap" in any casing (apricot2 itself writes
+    /// "Local:"/"LDAP:" while every other key in the file is lowercase-underscored) — used to
+    /// normalize just those two keys to lowercase before deserializing, since the shared deserializer
+    /// below matches YAML keys case-sensitively against the (already-lowercase) property names.</summary>
+    private static readonly Regex LocalLdapKeyLine = new(@"^(\s*)(local|ldap)(\s*:)", RegexOptions.IgnoreCase | RegexOptions.Multiline);
+
+    public LdapConfig LoadLdapConfig(string configDir)
+    {
+        var path = Path.Combine(configDir, "ldap.yaml");
+        if (!File.Exists(path))
+            return new LdapConfig { Present = false };
+
+        try
+        {
+            var text = File.ReadAllText(path);
+            text = LocalLdapKeyLine.Replace(text, m => m.Groups[1].Value + m.Groups[2].Value.ToLowerInvariant() + m.Groups[3].Value);
+            var cfg = _deserializer.Deserialize<LdapConfig>(text) ?? new LdapConfig();
+            cfg.Present = true;
+            return cfg;
+        }
+        catch (Exception ex)
+        {
+            LogLoadError(path, ex);
+            return new LdapConfig { Present = false };
+        }
+    }
+
+    public UsersConfig LoadUsers(string configDir)
+    {
+        var path = Path.Combine(configDir, "users.yaml");
+        if (!File.Exists(path))
+            return new UsersConfig();
+
+        try
+        {
+            var text = File.ReadAllText(path);
+            return _deserializer.Deserialize<UsersConfig>(text) ?? new UsersConfig();
+        }
+        catch (Exception ex)
+        {
+            LogLoadError(path, ex);
+            return new UsersConfig();
+        }
+    }
+
+    public SecretConfig LoadSecrets(string configDir)
+    {
+        var path = Path.Combine(configDir, "secret.yaml");
+        if (!File.Exists(path))
+            return new SecretConfig();
+
+        try
+        {
+            var text = File.ReadAllText(path);
+            return _deserializer.Deserialize<SecretConfig>(text) ?? new SecretConfig();
+        }
+        catch (Exception ex)
+        {
+            LogLoadError(path, ex);
+            return new SecretConfig();
+        }
+    }
+
+    public SessionsFile LoadSessions(string configDir)
+    {
+        var path = Path.Combine(configDir, "sessions.yaml");
+        if (!File.Exists(path))
+            return new SessionsFile();
+
+        try
+        {
+            var text = File.ReadAllText(path);
+            return _deserializer.Deserialize<SessionsFile>(text) ?? new SessionsFile();
+        }
+        catch (Exception ex)
+        {
+            LogLoadError(path, ex);
+            return new SessionsFile();
+        }
+    }
+
+    /// <summary>Best-effort — session persistence is a convenience (survive a service restart), not a
+    /// source of truth, so a transient write failure (e.g. file briefly locked) just logs and moves on
+    /// rather than crashing whatever login/logout request triggered the save.</summary>
+    public void SaveSessions(string configDir, SessionsFile sessions)
+    {
+        try
+        {
+            var path = Path.Combine(configDir, "sessions.yaml");
+            var text = _serializer.Serialize(sessions);
+            File.WriteAllText(path, text);
+        }
+        catch (Exception ex)
+        {
+            LogLoadError(Path.Combine(configDir, "sessions.yaml"), ex);
         }
     }
 }

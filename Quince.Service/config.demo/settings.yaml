@@ -1,0 +1,20 @@
+log_level: INFO             # DEBUG | INFO | WARNING | ERROR
+log_retention_days: 30
+reconnect_delay_seconds: 3   # пауза перед повторной попыткой подключения после обрыва потока/устройства, для всех каналов
+reconnect_max_attempts: 0    # после стольких неудачных подряд попыток канал останавливается и в лог пишется ERROR; 0 — не ограничивать
+meter_colors:
+  zone_yellow_db: -12.0
+  zone_red_db: -3.0
+  color_green: '#1d761d'
+  color_yellow: '#ccaa00'
+  color_red: '#cc1818'
+ad_keywords:                 # слова-маркеры рекламы для ElemClass=C в CSV метаданных (без учёта регистра)
+  - Реклама
+  - Reklama
+  - Commercial
+news_keywords:                # слова-маркеры новостей для ElemClass=N в CSV метаданных (без учёта регистра)
+  - Новости
+  - News
+  - Novosti
+ui_language: ru               # ru | en
+auth_session_ttl_seconds: 604800   # время жизни сеанса входа (см. ldap.yaml), по умолчанию неделя

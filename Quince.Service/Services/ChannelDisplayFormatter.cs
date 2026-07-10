@@ -33,6 +33,16 @@ public static class ChannelDisplayFormatter
 
     public static string FormatSource(ChannelConfig config)
     {
+        var (prefix, url) = FormatSourceParts(config);
+        return prefix + url;
+    }
+
+    /// <summary>Splits the source line into a static prefix and the raw URL, so callers (the channel
+    /// card) can mask just the URL on click without hiding the surrounding "Stream: HLS ·" label.
+    /// <see cref="Url"/> is empty for <c>soundcard</c> sources — there's nothing sensitive to mask,
+    /// the device name lives entirely in the prefix.</summary>
+    public static (string Prefix, string Url) FormatSourceParts(ChannelConfig config)
+    {
         var src = config.Source;
         if (src.Type == "soundcard")
         {
@@ -42,14 +52,23 @@ public static class ChannelDisplayFormatter
             var sr = inf.SampleRate != 0 ? $"{inf.SampleRate}Hz" : "";
             var parts = new[] { sr, chLabel }.Where(p => !string.IsNullOrEmpty(p));
             var detail = string.Join(" ", parts);
-            return $"Soundcard: {name}" + (detail.Length > 0 ? $" · {detail}" : "");
+            return ($"Soundcard: {name}" + (detail.Length > 0 ? $" · {detail}" : ""), "");
         }
 
         var st = string.IsNullOrEmpty(src.StreamType) ? "STREAM" : src.StreamType.ToUpperInvariant();
-        return $"Stream: {st} · {src.Url}";
+        return ($"Stream: {st} · ", src.Url);
     }
 
     public static string FormatOutput(ChannelConfig config, LocalizationService loc)
+    {
+        var (formatQuality, path, duration) = FormatOutputParts(config, loc);
+        var parts = new[] { formatQuality, path, duration }.Where(p => !string.IsNullOrEmpty(p));
+        return string.Join(" · ", parts);
+    }
+
+    /// <summary>Splits the output line into its three joined segments so the channel card can mask
+    /// just <see cref="Path"/> on click, leaving format/quality/duration always visible.</summary>
+    public static (string FormatQuality, string Path, string Duration) FormatOutputParts(ChannelConfig config, LocalizationService loc)
     {
         // "original" mode resolves its actual codec/extension from the source (see
         // AudioWriter.ResolveEffectiveFormat) rather than the raw config value, which can be a
@@ -61,8 +80,7 @@ public static class ChannelDisplayFormatter
             : $"{outFmt.BitDepth}bit";
         var path = config.SavePath ?? "";
         var duration = FormatDuration(config.FileDurationMinutes * 60, loc);
-        var parts = new[] { $"{fmt} {quality}", path, duration }.Where(p => !string.IsNullOrEmpty(p));
-        return string.Join(" · ", parts);
+        return ($"{fmt} {quality}", path, duration);
     }
 
     public static string FormatDuration(int seconds, LocalizationService loc)

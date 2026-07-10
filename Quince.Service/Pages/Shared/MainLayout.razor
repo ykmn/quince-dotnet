@@ -1,8 +1,10 @@
 @inherits LayoutComponentBase
 @using Quince.Service.Services
+@using Quince.Service.Services.Auth
 @inject ChannelManager ChannelManager
 @inject AudioEngineManager EngineManager
 @inject ChannelUiState UiState
+@inject AppSettingsService AppSettings
 @inject LocalizationService Loc
 @inject AudioPlaybackService PlaybackService
 @inject Microsoft.Extensions.Hosting.IHostApplicationLifetime Lifetime
@@ -39,6 +41,24 @@
                     <button type="button" class="dialog-tab @(Loc.Language == "ru" ? "dialog-tab-active" : "")" @onclick='() => SetLanguage("ru")'>RU</button>
                     <button type="button" class="dialog-tab @(Loc.Language == "en" ? "dialog-tab-active" : "")" @onclick='() => SetLanguage("en")'>EN</button>
                 </div>
+                <div class="menu-theme-row" title="@Loc["menu.themeTitle"]">
+                    <span class="menu-theme-icon">@(_theme == "dark" ? "🌙" : "☀️")</span>
+                    <button type="button" class="dialog-tab @(_theme == "light" ? "dialog-tab-active" : "")" @onclick='() => SetTheme("light")'>@Loc["menu.themeLight"]</button>
+                    <button type="button" class="dialog-tab @(_theme == "dark" ? "dialog-tab-active" : "")" @onclick='() => SetTheme("dark")'>@Loc["menu.themeDark"]</button>
+                </div>
+                <div class="menu-theme-row" title="@Loc["menu.tpIndicatorsTitle"]">
+                    <span class="menu-theme-icon">📊</span>
+                    <button type="button" class="dialog-tab @(!AppSettings.Current.ShowTpIndicators ? "dialog-tab-active" : "")" @onclick='() => SetShowTpIndicators(false)'>@Loc["menu.tpIndicatorsHide"]</button>
+                    <button type="button" class="dialog-tab @(AppSettings.Current.ShowTpIndicators ? "dialog-tab-active" : "")" @onclick='() => SetShowTpIndicators(true)'>@Loc["menu.tpIndicatorsShow"]</button>
+                </div>
+                @if (CurrentUser is { AuthRequired: true })
+                {
+                    <div class="menu-sep"></div>
+                    <div class="menu-user-row" title="@Loc["menu.loggedInAsTitle"]">
+                        <span class="menu-user-name">@CurrentUser.Username</span>
+                        <button class="menu-item" title="@Loc["menu.logoutTitle"]" @onclick="Logout">@Loc["menu.logout"]</button>
+                    </div>
+                }
                 <div class="menu-sep"></div>
                 <span class="menu-version" title="@Loc["menu.versionTitle"]">@_version</span>
                 <button class="menu-item" title="@Loc["menu.aboutTitle"]" @onclick="ShowAbout">@Loc["menu.about"]</button>
@@ -117,10 +137,17 @@
 <audio id="quince-playback-audio" style="display:none"></audio>
 
 @code {
+    [CascadingParameter] private CurrentUserContext? CurrentUser { get; set; }
+
     private bool _menuOpen;
     private bool _aboutOpen;
     private bool _confirmRestart;
     private readonly string _version = "v" + VersionInfo.Version;
+
+    // Theme is client-only (localStorage, applied pre-paint by the inline script in _Host.cshtml —
+    // see theme.js) so the server can't know the real value until after first render; "light"
+    // here is just the initial guess used before that JS round-trip lands.
+    private string _theme = "light";
 
     // Braille "dots" spinner (same glyph set as common CLI spinners) shown in the status bar
     // between clicking ▶ (AudioPlaybackService.Play) and the browser <audio> element actually
@@ -140,6 +167,31 @@
     }
 
     private void OnUiStateChanged() => InvokeAsync(StateHasChanged);
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+        _theme = await JS.InvokeAsync<string>("quinceTheme.get");
+        StateHasChanged();
+    }
+
+    private async Task SetTheme(string theme)
+    {
+        if (_theme == theme) return;
+        _theme = theme;
+        await JS.InvokeVoidAsync("quinceTheme.set", theme);
+    }
+
+    private void SetShowTpIndicators(bool show)
+    {
+        if (AppSettings.Current.ShowTpIndicators == show) return;
+        // Mutates the live AppConfig in place rather than cloning it — Current is the same instance
+        // AppSettings.Save expects back, so this is just flipping one field without having to copy
+        // every other field (meter colors, ad/news keywords, ...) the way AppSettingsDialog.Save does
+        // for its own full-form save.
+        AppSettings.Current.ShowTpIndicators = show;
+        AppSettings.Save(AppSettings.Current);
+    }
 
     /// <summary>Drives the hidden &lt;audio&gt; element via JS interop whenever the monitored
     /// channel changes — the actual audio bytes come from <see cref="AudioStreamEndpoint"/>, this
@@ -224,6 +276,12 @@
     }
 
     private void CloseAbout() => _aboutOpen = false;
+
+    private async Task Logout()
+    {
+        CloseMenu();
+        await JS.InvokeVoidAsync("quinceAuth.logout");
+    }
 
     private void NewChannel()
     {

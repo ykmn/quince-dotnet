@@ -11,17 +11,17 @@
     # Только обновить MOSCOW.md
     .\scripts\Import-RadioPlayerStations.ps1
 
-    # Создать YAML-конфиги в ./config/
+    # Создать YAML-конфиги в ./config/stations/
     .\scripts\Import-RadioPlayerStations.ps1 -CreateConfigs
 
     # Указать другую папку конфигов
-    .\scripts\Import-RadioPlayerStations.ps1 -CreateConfigs -ConfigDir "D:\quince\config"
+    .\scripts\Import-RadioPlayerStations.ps1 -CreateConfigs -ConfigDir "D:\quince\config\stations"
 
 .PARAMETER CreateConfigs
     Создать YAML-конфиги для всех найденных станций с потоком.
 
 .PARAMETER ConfigDir
-    Папка для сохранения YAML-конфигов. По умолчанию: ./config/ относительно корня проекта.
+    Папка для сохранения YAML-конфигов. По умолчанию: ./config/stations/ относительно корня проекта.
 
 .PARAMETER MoscowMd
     Путь к MOSCOW.md. По умолчанию: ./MOSCOW.md относительно корня проекта.
@@ -50,7 +50,9 @@ $ScriptRoot  = Split-Path -Parent $MyInvocation.MyCommand.Path
 #$ProjectRoot = Split-Path -Parent $ScriptRoot
 $ProjectRoot = $ScriptRoot
 
-if (-not $ConfigDir) { $ConfigDir = Join-Path $ProjectRoot "config" }
+# Channel configs live in config/stations/ (see docs/HISTORY.md) — default output mirrors that
+# layout so files generated here can be copied straight into a real deployment's config/stations/.
+if (-not $ConfigDir) { $ConfigDir = Join-Path $ProjectRoot "config/stations" }
 if (-not $MoscowMd)  { $MoscowMd  = Join-Path $ProjectRoot "MOSCOW.md" }
 
 $GtsUrl      = "https://api.radioplayer.ru/api/web/site/gts"

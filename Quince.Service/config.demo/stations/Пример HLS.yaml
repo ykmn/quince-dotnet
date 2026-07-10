@@ -1,0 +1,36 @@
+name: Пример HLS
+source:
+  type: stream            # stream | soundcard
+  url: https://example.com/stream/playlist.m3u8
+  stream_type: hls         # hls | icecast | icecast_mp3
+  device_name: ''          # для type: soundcard
+  device_index: -1
+  device_uid: ''
+  allow_http: false
+  allow_invalid_ssl: false
+  metadata_url: ''                     # '' | 'icy' | JSON-эндпоинт — см. README, «Метаданные потока»
+input_format:
+  sample_rate: 0
+  bit_depth: 0
+  channels: 0
+  bitrate: 0
+  codec: ''
+output_format:
+  mode: original            # original | custom — см. README
+  file_format: aac          # используется только при mode: custom
+  sample_rate: 48000
+  bit_depth: 16
+  channels: 2
+save_path: 'D:\recording\Example'
+date_folder_format: YYYY-MM-DD
+file_name_format: hh-mm-ss
+file_duration_minutes: 10
+record_audio: true
+retention_days: 30
+auto_start: false
+silence_detector:
+  enabled: false
+  threshold_dbfs: -60.0
+  trigger_seconds: 3.0
+  resume_seconds: 1.0
+metadata_path: ''

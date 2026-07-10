@@ -47,20 +47,37 @@
     </div>
     <div class="channel-info-row">
         <div class="channel-info-col">
-            <div class="channel-row2" title="@Loc["channelCard.sourceTitle"]"><strong>@Loc["channelCard.sourceLabelPrefix"]</strong> @ChannelDisplayFormatter.FormatSource(Config)</div>
-            <div class="channel-row3" title="@Loc["channelCard.outputTitle"]"><strong>@Loc["channelCard.outputLabelPrefix"]</strong> @ChannelDisplayFormatter.FormatOutput(Config, Loc)</div>
+            <div class="channel-row2" title="@Loc["channelCard.sourceTitle"]">
+                <strong>@Loc["channelCard.sourceLabelPrefix"]</strong> @SourcePrefix@if (!string.IsNullOrEmpty(SourceUrl))
+                {
+                    <span class="maskable-value" title="@Loc["channelCard.clickToToggleMask"]" @onclick="UiState.ToggleValuesMasked">@(UiState.ValuesMasked ? MaskText(SourceUrl) : SourceUrl)</span>
+                }
+            </div>
+            <div class="channel-row3" title="@Loc["channelCard.outputTitle"]">
+                <strong>@Loc["channelCard.outputLabelPrefix"]</strong> @OutputFormatQuality@if (!string.IsNullOrEmpty(OutputPath))
+                {
+                    <text> · </text><span class="maskable-value" title="@Loc["channelCard.clickToToggleMask"]" @onclick="UiState.ToggleValuesMasked">@(UiState.ValuesMasked ? MaskText(OutputPath) : OutputPath)</span>
+                }
+                @if (!string.IsNullOrEmpty(OutputDuration))
+                {
+                    <text> · </text>@OutputDuration
+                }
+            </div>
             @if (HasMetadata)
             {
                 <div class="channel-row-metadata" title="@MetadataDotTitle"><strong>@Loc["channelCard.metadataLabelPrefix"]</strong> @(_metadataText ?? Loc["channelCard.metadataNotFlowing"])</div>
             }
         </div>
-        <div class="level-widget" title="@Loc["channelCard.levelTitle"]">
-            <div class="level-row">
-                <span class="level-label">TP</span>
-                <div class="level-track" style="background: @(TrackGradient);"><div class="level-cover" style="width: @(CoverPercentText)%;"></div></div>
-                <span class="level-value">@LevelValueText</span>
+        @if (AppSettings.Current.ShowTpIndicators)
+        {
+            <div class="level-widget" title="@Loc["channelCard.levelTitle"]">
+                <div class="level-row">
+                    <span class="level-label">TP</span>
+                    <div class="level-track" style="background: @(TrackGradient);"><div class="level-cover" style="width: @(CoverPercentText)%;"></div></div>
+                    <span class="level-value">@LevelValueText</span>
+                </div>
             </div>
-        </div>
+        }
     </div>
 </div>
 
@@ -73,16 +90,17 @@
     private string? _metadataText;
     private bool _disposed;
 
-    // Green while actually writing to disk (IsFileRecording, not just IsRecording — a channel
-    // auto-started only for listen-in has IsRecording true but should not look like it's recording);
-    // yellow while the engine is up only for listen-in playback; red once the channel stopped
-    // itself after exhausting its reconnect-attempt budget (EngineStatus.HasError), until it's
-    // started again.
+    // Yellow whenever this channel is being listened to, regardless of whether it's also being
+    // recorded to disk right now — listen-in always wins so the border reflects "you'll hear this"
+    // rather than the recording state. Green while actually writing to disk (IsFileRecording, not
+    // just IsRecording — a channel auto-started only for listen-in has IsRecording true but should
+    // not look like it's recording) when not being listened to. Red once the channel stopped itself
+    // after exhausting its reconnect-attempt budget (EngineStatus.HasError), until it's started again.
     private string StatusBorderClass => _status switch
     {
+        _ when IsPlayingThis => "is-listening",
         { IsFileRecording: true } => "is-recording",
         { HasError: true } => "has-error",
-        _ when IsPlayingThis => "is-listening",
         _ => "",
     };
 
@@ -145,11 +163,20 @@
 
     private bool IsPlayingThis => PlaybackService.PlayingChannel == Config.Name;
 
+    private string SourcePrefix => ChannelDisplayFormatter.FormatSourceParts(Config).Prefix;
+    private string SourceUrl => ChannelDisplayFormatter.FormatSourceParts(Config).Url;
+    private string OutputFormatQuality => ChannelDisplayFormatter.FormatOutputParts(Config, Loc).FormatQuality;
+    private string OutputPath => ChannelDisplayFormatter.FormatOutputParts(Config, Loc).Path;
+    private string OutputDuration => ChannelDisplayFormatter.FormatOutputParts(Config, Loc).Duration;
+
+    private static string MaskText(string text) => new string('*', Math.Clamp(text.Length, 6, 40));
+
     protected override void OnInitialized()
     {
         AppSettings.Changed += OnSettingsChanged;
         PlaybackService.Changed += OnSettingsChanged;
         Loc.Changed += OnSettingsChanged;
+        UiState.Changed += OnSettingsChanged;
         if (!IsEligibleType) return;
 
         _status = EngineManager.GetStatus(Config.Name) ?? new EngineStatus();
@@ -184,7 +211,9 @@
 
     private void OnLevelUpdated(string channelName, LevelReading reading)
     {
-        if (_disposed || channelName != Config.Name) return;
+        // ShowTpIndicators off means the card-level indicator module does no work at all, not just
+        // "hide the meter" — skip before touching _level or scheduling a render.
+        if (_disposed || channelName != Config.Name || !AppSettings.Current.ShowTpIndicators) return;
         _level = reading;
         RequestRender();
     }
@@ -264,6 +293,7 @@
         AppSettings.Changed -= OnSettingsChanged;
         PlaybackService.Changed -= OnSettingsChanged;
         Loc.Changed -= OnSettingsChanged;
+        UiState.Changed -= OnSettingsChanged;
         if (IsEligibleType)
         {
             EngineManager.LevelUpdated -= OnLevelUpdated;

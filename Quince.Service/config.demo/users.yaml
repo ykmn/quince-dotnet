@@ -1,0 +1,17 @@
+# config/users.yaml
+# Локальные пользователи (используются при Local: true в ldap.yaml).
+#
+# is_admin: true  — пока ни на что не влияет в UI (задел на будущее разделение прав), просто
+#                   отображается/логируется вместе с сеансом.
+# is_admin: false — тоже полный доступ сегодня; разница появится, когда в интерфейсе будет что
+#                   ограничивать для не-администраторов.
+#
+# password_hash — BCrypt-хэш. Генерируется без внешних скриптов, прямо самим exe:
+#     Quince.Service.exe --hash-password
+# Демонстрационный хэш ниже соответствует паролю "changeme" — обязательно замените перед
+# реальным использованием.
+
+users:
+  - username: admin
+    password_hash: "$2a$11$yAk6M3qMD4yM4XyYhQdV4etUlPJJYBar.RItT5GuerJVbn.QKAXNy"
+    is_admin: true
