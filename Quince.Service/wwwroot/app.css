@@ -62,17 +62,17 @@
 }
 
 [data-theme="dark"] {
-    --page-bg: #14181f;
-    --surface: #1c2129;
-    --surface-alt: #232833;
-    --surface-hover: #2a303c;
+    --page-bg: #323c4e;
+    --surface: #3b4656;
+    --surface-alt: #424c60;
+    --surface-hover: #4a5469;
     --border: #333a47;
     --border-strong: #3d4553;
     --border-card: #4b5563;
-    --text: #e5e7eb;
-    --text-secondary: #b0b8c4;
-    --text-muted: #8b93a3;
-    --text-faint: #6b7280;
+    --text: #ffffff;
+    --text-secondary: #dcdfe5;
+    --text-muted: #b6bbc5;
+    --text-faint: #9399a5;
     --track-bg: #3d4553;
     --overlay-bg: rgba(0, 0, 0, 0.55);
     --shadow-color: rgba(0, 0, 0, 0.5);
@@ -100,6 +100,31 @@ body {
     display: flex;
     flex-direction: column;
     overflow: hidden;
+}
+
+/* Hidden by default — blazor.server.js (see wwwroot/reconnect.js) toggles
+   .components-reconnect-show/-failed/-rejected while the SignalR circuit is down; -hide/absence of
+   those classes is the normal "connected" state. */
+#components-reconnect-modal {
+    display: none;
+    position: fixed;
+    top: 12px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 1000;
+    background: var(--surface);
+    border: 1px solid var(--border-strong);
+    border-radius: 8px;
+    box-shadow: 0 6px 20px var(--shadow-color);
+    padding: 8px 16px;
+    font-size: 13px;
+    color: var(--text);
+}
+
+#components-reconnect-modal.components-reconnect-show,
+#components-reconnect-modal.components-reconnect-failed,
+#components-reconnect-modal.components-reconnect-rejected {
+    display: block;
 }
 
 .topbar {
@@ -219,18 +244,37 @@ body {
     margin: 0;
 }
 
-.menu-lang-row,
-.menu-theme-row {
+/* Language row — same footprint as .menu-item (flush, no card/border) so it reads as just another
+   row in the menu, only shaped as a flex row instead of a single <button> because it hosts the
+   RU/EN pills as separately-clickable children. */
+.menu-lang-row {
     display: flex;
     align-items: center;
-    gap: 6px;
-    padding: 6px 14px;
+    gap: 8px;
+    padding: 9px 14px;
+    font-size: 13px;
+    color: var(--text);
 }
 
-.menu-lang-icon,
-.menu-theme-icon {
-    font-size: 13px;
-    margin-right: 2px;
+.menu-lang-icon {
+    font-size: 14px;
+    flex: 0 0 auto;
+}
+
+.menu-lang-label {
+    flex: 1 1 auto;
+}
+
+.menu-toggle-pills {
+    display: flex;
+    gap: 6px;
+    flex: 0 0 auto;
+}
+
+.menu-toggle-pills {
+    display: flex;
+    gap: 6px;
+    flex: 0 0 auto;
 }
 
 .menu-user-row {
@@ -279,6 +323,7 @@ body {
     border-radius: 8px;
     padding: 20px 24px;
     min-width: 280px;
+    max-width: min(480px, calc(100vw - 32px));
     box-shadow: 0 10px 40px var(--shadow-color);
 }
 
@@ -345,10 +390,11 @@ body {
 
 .filter-row {
     padding: 8px 16px;
+    flex: 0 0 auto;
 }
 
 .filter-row input {
-    width: 100%;
+    width: 280px;
     max-width: 360px;
     box-sizing: border-box;
     background: var(--surface);
@@ -369,13 +415,30 @@ body {
     align-items: center;
     justify-content: space-between;
     gap: 8px;
-    margin: 0 16px 8px;
+    flex: 1 1 auto;
+    min-width: 0;
+    margin: 8px 16px 8px 0;
     padding: 6px 10px;
     background: #eff6ff;
     border: 1px solid #bfdbfe;
     border-radius: 8px;
     color: #1e3a8a;
     font-size: 12px;
+}
+
+.status-bar span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* Same slot as .status-bar (next to the filter box) while bulk-select mode is on, but it's action
+   buttons, not an info message — no blue notice styling, left-aligned instead of space-between. */
+.bulk-edit-bar {
+    background: transparent;
+    border: none;
+    padding: 8px 0;
+    justify-content: flex-start;
 }
 
 .status-bar-close {
@@ -431,6 +494,14 @@ body {
     cursor: pointer;
     text-decoration: underline dotted;
     text-underline-offset: 2px;
+}
+
+.channel-select-checkbox {
+    width: 15px;
+    height: 15px;
+    min-width: 15px;
+    margin: 0;
+    cursor: pointer;
 }
 
 .status-dot {
@@ -920,6 +991,14 @@ body {
 
 .list-toolbar {
     flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+}
+
+@media (max-width: 640px) {
+    .list-toolbar {
+        flex-wrap: wrap;
+    }
 }
 
 .channel-scroll {

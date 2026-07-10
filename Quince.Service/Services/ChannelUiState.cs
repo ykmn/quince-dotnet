@@ -22,6 +22,69 @@ public class ChannelUiState
     public bool SettingsOpen { get; private set; }
     public bool ReadmeOpen { get; private set; }
 
+    /// <summary>Whether channel cards show a selection checkbox and the toolbar shows "Изменить…"
+    /// instead of the status message — the "Массовое изменение" (bulk edit) menu action's mode.</summary>
+    public bool BulkSelectMode { get; private set; }
+
+    /// <summary>Channel <see cref="ChannelConfig.Filename"/>s currently checked while
+    /// <see cref="BulkSelectMode"/> is on.</summary>
+    public HashSet<string> SelectedChannelFilenames { get; } = new();
+
+    public bool BulkEditOpen { get; private set; }
+
+    public void ToggleBulkSelectMode()
+    {
+        if (BulkSelectMode) EndBulkSelect();
+        else
+        {
+            BulkSelectMode = true;
+            Notify();
+        }
+    }
+
+    /// <summary>Turns bulk-select off, clears the checked set, and closes the bulk-edit dialog if it
+    /// was open — used both when the menu action is toggled off and after a successful apply.</summary>
+    public void EndBulkSelect()
+    {
+        BulkSelectMode = false;
+        SelectedChannelFilenames.Clear();
+        BulkEditOpen = false;
+        Notify();
+    }
+
+    public void ToggleChannelSelected(string filename)
+    {
+        if (!SelectedChannelFilenames.Remove(filename))
+            SelectedChannelFilenames.Add(filename);
+        Notify();
+    }
+
+    public void SelectAll(IEnumerable<string> filenames)
+    {
+        SelectedChannelFilenames.Clear();
+        foreach (var filename in filenames) SelectedChannelFilenames.Add(filename);
+        Notify();
+    }
+
+    public void DeselectAll()
+    {
+        SelectedChannelFilenames.Clear();
+        Notify();
+    }
+
+    public void OpenBulkEdit()
+    {
+        if (SelectedChannelFilenames.Count == 0) return;
+        BulkEditOpen = true;
+        Notify();
+    }
+
+    public void CloseBulkEdit()
+    {
+        BulkEditOpen = false;
+        Notify();
+    }
+
     /// <summary>Whether the source URL / save-path text on every channel card is masked (behind
     /// `***`) — a single flag shared by all cards (not per-card, not per-field) so clicking any one
     /// card's URL or path hides/reveals it everywhere at once, e.g. right before screen-sharing.</summary>

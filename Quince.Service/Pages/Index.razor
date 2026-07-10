@@ -12,7 +12,18 @@
                title="@Loc["index.filterTitle"]" />
     </div>
 
-    @if (!string.IsNullOrEmpty(UiState.StatusMessage))
+    @if (UiState.BulkSelectMode)
+    {
+        <div class="status-bar bulk-edit-bar">
+            <button type="button" class="btn btn-small" @onclick="SelectAllFiltered">@Loc["index.bulkSelectAll"]</button>
+            <button type="button" class="btn btn-small" @onclick="UiState.DeselectAll">@Loc["index.bulkDeselectAll"]</button>
+            <button type="button" class="btn btn-start" disabled="@(UiState.SelectedChannelFilenames.Count == 0)"
+                    title="@Loc["index.bulkEditButtonTitle"]" @onclick="UiState.OpenBulkEdit">
+                @Loc["index.bulkEditButton"]
+            </button>
+        </div>
+    }
+    else if (!string.IsNullOrEmpty(UiState.StatusMessage))
     {
         <div class="status-bar">
             <span>@UiState.StatusMessage</span>
@@ -55,6 +66,10 @@
         ChannelManager.Channels.Where(c =>
             string.IsNullOrWhiteSpace(FilterText) ||
             c.Name.Contains(FilterText, StringComparison.OrdinalIgnoreCase));
+
+    // Selects only the currently filtered/visible channels, not every channel in the app — matches
+    // what the user can actually see on screen while the name filter is active.
+    private void SelectAllFiltered() => UiState.SelectAll(FilteredChannels.Select(c => c.Filename));
 
     protected override void OnInitialized()
     {

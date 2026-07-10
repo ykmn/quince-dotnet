@@ -79,9 +79,12 @@ public class AudioEngineManager : IHostedService
         }
     }
 
+    /// <summary>True only while the channel is actually capturing — not merely "has an entry in
+    /// _engines", which also covers a channel that gave up after exhausting its reconnect-attempt
+    /// budget (EngineStatus.HasError) and is sitting there dead until someone starts it again.</summary>
     public bool IsRunning(string channelName)
     {
-        lock (_lock) { return _engines.ContainsKey(channelName); }
+        lock (_lock) { return _engines.TryGetValue(channelName, out var engine) && engine.Status.IsRecording; }
     }
 
     /// <summary>For output-monitoring playback: subscribes an extra consumer to a running channel's
@@ -131,7 +134,18 @@ public class AudioEngineManager : IHostedService
     {
         lock (_lock)
         {
-            if (_engines.ContainsKey(channelName)) return;
+            if (_engines.TryGetValue(channelName, out var existingEngine))
+            {
+                if (existingEngine.Status.IsRecording) return; // already running — no-op, as before
+
+                // Stopped itself after exhausting its reconnect-attempt budget (EngineStatus.HasError) —
+                // OnReconnectExhausted only calls the ChannelEngine's own Stop(), it never goes through
+                // this class's Stop() below, so the entry is still sitting in _engines pointing at a dead
+                // engine. Without this, a manual "Старт" on a channel in that state would hit the
+                // ContainsKey check above and silently do nothing forever, even once the source is
+                // reachable again. Drop the stale entry so a fresh ChannelEngine gets created below.
+                _engines.Remove(channelName);
+            }
 
             var config = _channelManager.Channels.FirstOrDefault(c => c.Name == channelName);
             if (config == null || !IsEligible(config)) return;

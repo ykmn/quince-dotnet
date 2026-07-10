@@ -30,12 +30,15 @@
     </script>
 </head>
 <body>
+    <div id="components-reconnect-modal">⚠️ Переподключение к серверу…</div>
     <component type="typeof(App)" render-mode="ServerPrerendered"
                 param-AuthRequired="@authRequired" param-Username="@username" param-IsAdmin="@isAdmin" />
-    <script src="_framework/blazor.server.js"></script>
+    <script src="_framework/blazor.server.js" autostart="false"></script>
     <script src="goniometer.js"></script>
     <script src="playback.js"></script>
     <script src="auth.js"></script>
     <script src="theme.js"></script>
+    <script src="dialogs.js"></script>
+    <script src="reconnect.js"></script>
 </body>
 </html>

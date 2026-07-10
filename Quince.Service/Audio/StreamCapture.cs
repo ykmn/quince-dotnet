@@ -187,10 +187,12 @@ public sealed class StreamCapture : IAudioCapture
                 _process = process;
                 lock (_stderrLock) { _stderrBuffer.Clear(); }
                 _status = StreamStatus.Streaming;
-                if (_reconnectAttempt > 0)
-                    _log.LogInformation("Переподключение к {Url} выполнено", _url);
-                _reconnectAttempt = 0;
 
+                // _reconnectAttempt is NOT reset here — a bad/unreachable URL still lets the ffmpeg
+                // *process* start fine (it only fails internally to open the input and exits with no
+                // output); resetting on Process.Start alone wiped the counter every single loop,
+                // before ReconnectMaxAttempts could ever be exceeded. It's reset in ReadLoopAsync
+                // instead, the moment real audio bytes are actually confirmed flowing.
                 var stderrDrainTask = DrainStderrAsync(process, ct);
                 await ReadLoopAsync(process, ct);
             }
@@ -259,6 +261,15 @@ public sealed class StreamCapture : IAudioCapture
                 totalRead += n;
             }
             if (totalRead == 0) break; // EOF — process exited
+
+            // First real bytes actually confirm the connection works — only here is it safe to
+            // forgive earlier failed attempts, unlike the old reset-on-Process.Start behavior that
+            // let a persistently bad URL loop forever regardless of ReconnectMaxAttempts.
+            if (_reconnectAttempt > 0)
+            {
+                _log.LogInformation("Переподключение к {Url} выполнено", _url);
+                _reconnectAttempt = 0;
+            }
 
             var nSamples = totalRead / BytesPerSample;
             var nFrames = nSamples / Channels;

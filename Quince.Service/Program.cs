@@ -41,7 +41,22 @@ builder.Host.UseWindowsService(options =>
 });
 
 builder.Services.AddRazorPages();
-builder.Services.AddServerSideBlazor();
+
+// Defaults (3 min circuit retention, 30s client timeout) are tuned for a page someone is actively
+// looking at — a backgrounded/idle browser tab (throttled JS timers, laptop sleep, a brief network
+// blip) routinely exceeds them, at which point the server has already discarded the circuit and no
+// amount of client-side retrying (_Host.cshtml's Blazor.start) can recover it — only a manual page
+// reload gets a fresh one. Raised here so a tab left open for a while reconnects on its own instead
+// of getting stuck on "Reconnecting...".
+builder.Services.AddServerSideBlazor(options =>
+{
+    options.DisconnectedCircuitRetentionPeriod = TimeSpan.FromMinutes(15);
+}).AddHubOptions(options =>
+{
+    // SignalR requires ClientTimeoutInterval >= 2x KeepAliveInterval.
+    options.KeepAliveInterval = TimeSpan.FromSeconds(15);
+    options.ClientTimeoutInterval = TimeSpan.FromSeconds(60);
+});
 
 builder.Services.AddSingleton<YamlConfigLoader>();
 builder.Services.AddSingleton<ChannelManager>();

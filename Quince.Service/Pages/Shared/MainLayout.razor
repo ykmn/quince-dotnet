@@ -1,4 +1,5 @@
 @inherits LayoutComponentBase
+@using System.Globalization
 @using Quince.Service.Services
 @using Quince.Service.Services.Auth
 @inject ChannelManager ChannelManager
@@ -7,7 +8,6 @@
 @inject AppSettingsService AppSettings
 @inject LocalizationService Loc
 @inject AudioPlaybackService PlaybackService
-@inject Microsoft.Extensions.Hosting.IHostApplicationLifetime Lifetime
 @inject IJSRuntime JS
 @implements IDisposable
 
@@ -24,33 +24,36 @@
         {
             <div class="menu-overlay" @onclick="CloseMenu"></div>
             <div class="hamburger-menu" @onclick:stopPropagation="true">
+                <button class="menu-item" title="@Loc["menu.themeTitle"]" @onclick="ToggleTheme">
+                    @(_theme == "dark" ? "☀️ " + Loc["menu.themeSwitchToLight"] : "🌙 " + Loc["menu.themeSwitchToDark"])
+                </button>
+                <div class="menu-lang-row" title="@Loc["menu.languageTitle"]">
+                    <span class="menu-lang-icon">🌐</span>
+                    <span class="menu-lang-label">@Loc["menu.language"]</span>
+                    <div class="menu-toggle-pills">
+                        <button type="button" class="dialog-tab @(Loc.Language == "ru" ? "dialog-tab-active" : "")" @onclick='() => SetLanguage("ru")'>RU</button>
+                        <button type="button" class="dialog-tab @(Loc.Language == "en" ? "dialog-tab-active" : "")" @onclick='() => SetLanguage("en")'>EN</button>
+                    </div>
+                </div>
+                <div class="menu-sep"></div>
                 <button class="menu-item" title="@Loc["menu.newChannelTitle"]" @onclick="NewChannel">@Loc["menu.newChannel"]</button>
                 <div class="menu-sep"></div>
                 <button class="menu-item" title="@Loc["menu.startAllTitle"]" @onclick="StartAll">@Loc["menu.startAll"]</button>
                 <button class="menu-item" title="@Loc["menu.stopAllTitle"]" @onclick="StopAll">@Loc["menu.stopAll"]</button>
                 <div class="menu-sep"></div>
+                <button class="menu-item" title="@Loc["menu.refreshConfigTitle"]" @onclick="RefreshConfig">@Loc["menu.refreshConfig"]</button>
+                <div class="menu-sep"></div>
+                <button class="menu-item" title="@Loc["menu.tpIndicatorsTitle"]" @onclick="ToggleTpIndicators">
+                    @(AppSettings.Current.ShowTpIndicators ? Loc["menu.tpIndicatorsHideAction"] : Loc["menu.tpIndicatorsShowAction"])
+                </button>
+                <button class="menu-item" title="@Loc["menu.bulkEditTitle"]" @onclick="ToggleBulkSelectMode">
+                    @(UiState.BulkSelectMode ? Loc["menu.bulkEditStop"] : Loc["menu.bulkEditStart"])
+                </button>
+                <div class="menu-sep"></div>
                 <button class="menu-item" title="@Loc["menu.settingsTitle"]" @onclick="OpenSettings">@Loc["menu.settings"]</button>
                 <div class="menu-sep"></div>
-                <button class="menu-item" title="@Loc["menu.refreshConfigTitle"]" @onclick="RefreshConfig">@Loc["menu.refreshConfig"]</button>
-                <button class="menu-item" title="@Loc["menu.restartTitle"]" @onclick="AskRestart">@Loc["menu.restart"]</button>
-                <div class="menu-sep"></div>
                 <button class="menu-item" title="@Loc["menu.readmeTitle"]" @onclick="OpenReadme">@Loc["menu.readme"]</button>
-                <div class="menu-sep"></div>
-                <div class="menu-lang-row" title="@Loc["menu.languageTitle"]">
-                    <span class="menu-lang-icon">🌐</span>
-                    <button type="button" class="dialog-tab @(Loc.Language == "ru" ? "dialog-tab-active" : "")" @onclick='() => SetLanguage("ru")'>RU</button>
-                    <button type="button" class="dialog-tab @(Loc.Language == "en" ? "dialog-tab-active" : "")" @onclick='() => SetLanguage("en")'>EN</button>
-                </div>
-                <div class="menu-theme-row" title="@Loc["menu.themeTitle"]">
-                    <span class="menu-theme-icon">@(_theme == "dark" ? "🌙" : "☀️")</span>
-                    <button type="button" class="dialog-tab @(_theme == "light" ? "dialog-tab-active" : "")" @onclick='() => SetTheme("light")'>@Loc["menu.themeLight"]</button>
-                    <button type="button" class="dialog-tab @(_theme == "dark" ? "dialog-tab-active" : "")" @onclick='() => SetTheme("dark")'>@Loc["menu.themeDark"]</button>
-                </div>
-                <div class="menu-theme-row" title="@Loc["menu.tpIndicatorsTitle"]">
-                    <span class="menu-theme-icon">📊</span>
-                    <button type="button" class="dialog-tab @(!AppSettings.Current.ShowTpIndicators ? "dialog-tab-active" : "")" @onclick='() => SetShowTpIndicators(false)'>@Loc["menu.tpIndicatorsHide"]</button>
-                    <button type="button" class="dialog-tab @(AppSettings.Current.ShowTpIndicators ? "dialog-tab-active" : "")" @onclick='() => SetShowTpIndicators(true)'>@Loc["menu.tpIndicatorsShow"]</button>
-                </div>
+
                 @if (CurrentUser is { AuthRequired: true })
                 {
                     <div class="menu-sep"></div>
@@ -95,20 +98,6 @@
     </div>
 }
 
-@if (_confirmRestart)
-{
-    <div class="modal-overlay" @onclick="() => _confirmRestart = false">
-        <div class="modal-box" @onclick:stopPropagation="true">
-            <h2>@Loc["restartConfirm.title"]</h2>
-            <p>@Loc["restartConfirm.body"]</p>
-            <div class="form-actions">
-                <button class="btn btn-small" @onclick="() => _confirmRestart = false">@Loc["common.cancel"]</button>
-                <button class="btn btn-stop" @onclick="DoRestart">@Loc["restartConfirm.confirm"]</button>
-            </div>
-        </div>
-    </div>
-}
-
 @if (UiState.EditDialogOpen)
 {
     <ChannelEditDialog />
@@ -134,6 +123,11 @@
     <ReadmeDialog OnClose="UiState.CloseReadme" />
 }
 
+@if (UiState.BulkEditOpen)
+{
+    <BulkEditDialog />
+}
+
 <audio id="quince-playback-audio" style="display:none"></audio>
 
 @code {
@@ -141,7 +135,6 @@
 
     private bool _menuOpen;
     private bool _aboutOpen;
-    private bool _confirmRestart;
     private readonly string _version = "v" + VersionInfo.Version;
 
     // Theme is client-only (localStorage, applied pre-paint by the inline script in _Host.cshtml —
@@ -154,6 +147,7 @@
     // starting to make sound — the gap is the PlayoutBuffer jitter buffer filling up.
     private static readonly string[] BrailleFrames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
     private System.Threading.Timer? _bufferingTimer;
+    private System.Diagnostics.Stopwatch? _bufferingStopwatch;
     private int _brailleIndex;
     private bool _buffering;
     private DotNetObjectReference<MainLayout>? _dotNetRef;
@@ -175,12 +169,16 @@
         StateHasChanged();
     }
 
+    private Task ToggleTheme() => SetTheme(_theme == "dark" ? "light" : "dark");
+
     private async Task SetTheme(string theme)
     {
         if (_theme == theme) return;
         _theme = theme;
         await JS.InvokeVoidAsync("quinceTheme.set", theme);
     }
+
+    private void ToggleTpIndicators() => SetShowTpIndicators(!AppSettings.Current.ShowTpIndicators);
 
     private void SetShowTpIndicators(bool show)
     {
@@ -204,7 +202,8 @@
         {
             if (channel is null)
             {
-                StopBuffering();
+                StopBufferingTimer();
+                UiState.ClearStatusMessage();
                 await JS.InvokeVoidAsync("quincePlayback.stop");
             }
             else
@@ -219,36 +218,64 @@
     {
         _buffering = true;
         _brailleIndex = 0;
-        UiState.SetStatusMessage(Loc.T("status.buffering", BrailleFrames[0]));
+        _bufferingStopwatch = System.Diagnostics.Stopwatch.StartNew();
+        UiState.SetStatusMessage(Loc.T("status.buffering", BrailleFrames[0], FormatBufferingRemaining()));
         _bufferingTimer?.Dispose();
         _bufferingTimer = new System.Threading.Timer(_ =>
         {
             _brailleIndex = (_brailleIndex + 1) % BrailleFrames.Length;
             _ = InvokeAsync(() =>
             {
-                if (_buffering) UiState.SetStatusMessage(Loc.T("status.buffering", BrailleFrames[_brailleIndex]));
+                if (_buffering) UiState.SetStatusMessage(Loc.T("status.buffering", BrailleFrames[_brailleIndex], FormatBufferingRemaining()));
             });
         }, null, 120, 120);
     }
 
-    private void StopBuffering()
+    // AppSettings.Current.PlayoutBufferSeconds is the target delay the jitter buffer banks before
+    // releasing anything (see AppConfig.PlayoutBufferSeconds' own doc comment) — not an exact promise
+    // of when sound appears, but close enough for a countdown the user can watch tick down to 0.
+    private string FormatBufferingRemaining()
+    {
+        var total = AppSettings.Current.PlayoutBufferSeconds;
+        var elapsed = _bufferingStopwatch?.Elapsed.TotalSeconds ?? 0;
+        var remaining = Math.Max(0, total - elapsed);
+        return remaining.ToString("F0", CultureInfo.InvariantCulture);
+    }
+
+    /// <summary>Stops the spinner's timer/flag only — does NOT touch the status message, since the
+    /// two callers need different follow-up text: a persistent "Прослушка: X" once audio actually
+    /// starts (<see cref="OnPlaybackStarted"/>) vs. clearing it outright once playback stops or fails
+    /// (<see cref="OnPlaybackChanged"/>'s stop branch, <see cref="OnPlaybackError"/>).</summary>
+    private void StopBufferingTimer()
     {
         if (!_buffering) return;
         _buffering = false;
         _bufferingTimer?.Dispose();
         _bufferingTimer = null;
-        UiState.ClearStatusMessage();
+        _bufferingStopwatch = null;
     }
 
     /// <summary>Called from playback.js when the &lt;audio&gt; element's "playing" event fires —
-    /// the jitter buffer has enough data and sound is actually reaching the speakers now.</summary>
+    /// the jitter buffer has enough data and sound is actually reaching the speakers now. Swaps the
+    /// buffering spinner for a persistent "Прослушка: {channel}" status — deliberately NOT cleared
+    /// automatically, so it stays visible for as long as listen-in is actually active instead of
+    /// vanishing the moment playback starts.</summary>
     [JSInvokable]
-    public void OnPlaybackStarted() => InvokeAsync(StopBuffering);
+    public void OnPlaybackStarted() => InvokeAsync(() =>
+    {
+        StopBufferingTimer();
+        var channel = PlaybackService.PlayingChannel;
+        if (channel != null) UiState.SetStatusMessage(Loc.T("status.listening", channel));
+    });
 
     /// <summary>Called from playback.js on the &lt;audio&gt; element's "error" event, so a stream
     /// that never buffers (bad URL, source down) doesn't leave the spinner running forever.</summary>
     [JSInvokable]
-    public void OnPlaybackError() => InvokeAsync(StopBuffering);
+    public void OnPlaybackError() => InvokeAsync(() =>
+    {
+        StopBufferingTimer();
+        UiState.ClearStatusMessage();
+    });
 
     private void ToggleMenu() => _menuOpen = !_menuOpen;
     private void CloseMenu() => _menuOpen = false;
@@ -304,17 +331,10 @@
             : Loc.T("status.configRefreshed", result.Added, result.Updated, result.Removed));
     }
 
-    private void AskRestart()
+    private void ToggleBulkSelectMode()
     {
+        UiState.ToggleBulkSelectMode();
         CloseMenu();
-        _confirmRestart = true;
-    }
-
-    private void DoRestart()
-    {
-        _confirmRestart = false;
-        UiState.SetStatusMessage(Loc["status.restarting"]);
-        Lifetime.StopApplication();
     }
 
     private void StartAll()

@@ -14,6 +14,11 @@
 
 <div class="channel-card @StatusBorderClass">
     <div class="channel-row1">
+        @if (UiState.BulkSelectMode)
+        {
+            <input type="checkbox" class="channel-select-checkbox" checked="@UiState.SelectedChannelFilenames.Contains(Config.Filename)"
+                   @onchange="() => UiState.ToggleChannelSelected(Config.Filename)" title="@Loc["channelCard.bulkSelectTitle"]" />
+        }
         <div class="status-dot @StatusDotClass" title="@StatusDotTitle"></div>
         @if (Config.Source.Type == "stream")
         {
@@ -131,20 +136,24 @@
         _ => Loc["channelCard.metadataNotFlowing"],
     };
 
-    // Green while sound is present, red during silence (SilenceDetector.OnSilence), grey once the
-    // channel is stopped. Channels with the silence detector disabled in config never see IsSilent
-    // flip to true, so this simply stays green while recording — same "nothing to flag" convention
-    // already used by the metadata dot above.
+    // Green while sound is present, red during silence (SilenceDetector.OnSilence) or while actively
+    // reconnecting (ReconnectAttempt > 0 — no audio is flowing at all, so SilenceDetector never even
+    // runs to set IsSilent; without this case a channel stuck retrying a bad URL forever reads as
+    // "sound present" by default), grey once the channel is stopped. Channels with the silence
+    // detector disabled in config never see IsSilent flip to true, so a genuinely-connected channel
+    // simply stays green while recording — same "nothing to flag" convention already used by the
+    // metadata dot above.
     private string SoundDotClass => _status switch
     {
         { IsRecording: false } => "",
-        { IsSilent: true } => "dot-red",
+        { IsSilent: true } or { ReconnectAttempt: > 0 } => "dot-red",
         _ => "dot-green",
     };
 
     private string SoundDotTitle => _status switch
     {
         { IsRecording: false } => Loc["channelCard.statusStopped"],
+        { ReconnectAttempt: > 0 } => Loc["channelCard.soundNoConnection"],
         { IsSilent: true } => Loc["channelCard.soundSilence"],
         _ => Loc["channelCard.soundPresent"],
     };
