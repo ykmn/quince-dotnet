@@ -21,6 +21,7 @@ venv/
 # .NET build output / publish artifacts
 bin/
 obj/
-release/
+release/*
+!release/Update-Quince.ps1
 *.user
 .vs/
