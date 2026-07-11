@@ -45,6 +45,21 @@ public class AppConfig
     /// session record) — only meaningful when config/ldap.yaml enables authentication. Default: 1 week,
     /// same as apricot2.</summary>
     public int AuthSessionTtlSeconds { get; set; } = 7 * 24 * 3600;
+
+    /// <summary>Network adapter used for every Livewire channel's multicast join (both audio RTP and
+    /// <see cref="Audio.Livewire.LivewireDiscoveryService"/>'s Advertisement listener) — one setting
+    /// for the whole app, not per-channel, since every Livewire channel is by definition on the same
+    /// physical AoIP network. Empty string ("нет") means Livewire is not used on this machine: no
+    /// discovery, and any configured <c>livewire</c> channel fails to start with a clear error instead
+    /// of silently picking a NIC. Read once at startup for discovery and once per channel start for
+    /// capture — changing it live requires a restart, same as <see cref="Audio.Livewire.LivewireDiscoveryService.AdvertisementPort"/>.</summary>
+    public string LivewireNic { get; set; } = "";
+
+    /// <summary>Marks this instance as a debug/test build in the UI (topbar brand, browser tab
+    /// title, login page, About dialog all get an " — отладочная версия" suffix) — lets whoever's
+    /// running it at a glance tell it apart from a normal production instance, e.g. when a debug
+    /// build is running side-by-side with (or instead of) a production one during field testing.</summary>
+    public bool Develop { get; set; } = false;
 }
 
 public class MeterColorsConfig

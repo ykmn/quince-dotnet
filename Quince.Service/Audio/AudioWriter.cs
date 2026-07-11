@@ -231,13 +231,19 @@ public sealed class AudioWriter
         var fmt = config.OutputFormat;
         if (fmt.Mode != "original") return fmt;
 
-        var originalFileFormat = config.Source.Type == "soundcard"
-            ? "wav"
-            : config.Source.StreamType switch
+        var originalFileFormat = config.Source.Type switch
+        {
+            // Both are raw PCM at the capture backend's own native rate/channels — WAV keeps that
+            // lossless, matching this app's "only ever save through an explicit ffmpeg encode, never
+            // a raw byte passthrough" architecture (AudioWriter always pipes f32le through ffmpeg
+            // regardless of format) while still defaulting to no lossy transcoding for these sources.
+            "soundcard" or "livewire" => "wav",
+            _ => config.Source.StreamType switch
             {
                 "hls" => "aac",
                 _ => "mp3", // icecast, icecast_mp3
-            };
+            },
+        };
 
         return new OutputFormatConfig
         {

@@ -14,8 +14,29 @@ public enum StreamTypeMismatch
     TypeIsHlsButUrlDoesNot,
 }
 
+/// <summary>Which of the three states a channel's <see cref="EngineStatus"/> currently falls into —
+/// the same 3-way split the channel card's status dot already uses (see
+/// <see cref="ChannelDisplayFormatter.ClassifyRunState"/>), extracted so the main list's status
+/// filter can reuse it without risking silently drifting from what the dot itself shows.</summary>
+public enum ChannelRunState
+{
+    Stopped,
+    Running,
+    Error,
+}
+
 public static class ChannelDisplayFormatter
 {
+    /// <summary>Mirrors <c>ChannelCard.StatusDotClass</c>'s own switch exactly (green/red/grey) —
+    /// a channel actively capturing for any reason (including a listen-in-only auto-start) counts as
+    /// <see cref="ChannelRunState.Running"/> regardless of <see cref="EngineStatus.IsFileRecording"/>.</summary>
+    public static ChannelRunState ClassifyRunState(EngineStatus status) => status switch
+    {
+        { IsRecording: true } => ChannelRunState.Running,
+        { HasError: true } => ChannelRunState.Error,
+        _ => ChannelRunState.Stopped,
+    };
+
     /// <summary>Heuristic-only, non-blocking check — same ".m3u8" substring test already used by
     /// <c>scripts/Import-RadioPlayerStations.ps1</c> for bulk station import, just not previously
     /// wired into the live app. A mismatch here means <see cref="AudioWriter.ResolveEffectiveFormat"/>
@@ -53,6 +74,15 @@ public static class ChannelDisplayFormatter
             var parts = new[] { sr, chLabel }.Where(p => !string.IsNullOrEmpty(p));
             var detail = string.Join(" ", parts);
             return ($"Soundcard: {name}" + (detail.Length > 0 ? $" · {detail}" : ""), "");
+        }
+
+        if (src.Type == "livewire")
+        {
+            var name = string.IsNullOrEmpty(src.LivewireChannelName) ? "?" : src.LivewireChannelName;
+            var addr = LivewireAddressing.IsValidChannelNumber(src.LivewireChannelNumber)
+                ? LivewireAddressing.ChannelToMulticastAddress(src.LivewireChannelNumber).ToString()
+                : "?";
+            return ($"Livewire: {src.LivewireChannelNumber} — {name} ({addr})", "");
         }
 
         var st = string.IsNullOrEmpty(src.StreamType) ? "STREAM" : src.StreamType.ToUpperInvariant();

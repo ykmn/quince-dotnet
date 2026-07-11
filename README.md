@@ -2,6 +2,9 @@
 
 Многоканальный аудиологгер — веб-приложение на ASP.NET Core (Blazor Server), устанавливаемое как служба Windows. Версия: см. `docs/CHANGELOG.md` (текущая — `1.00.000`). Лицензия: GNU GPL v3 (`LICENSE.md`) — бесплатное opensource-приложение.
 
+> Быстрый запуск: [HOWTO.md](HOWTO.md)
+
+
 ## Требования
 
 - Для разработки/сборки: .NET 8 SDK.
@@ -64,7 +67,7 @@ sc.exe delete QuinceAudioLogger
 
 Все рабочие данные приложения лежат **рядом со скомпилированным `Quince.Service.exe`** (не зависят от того, как и откуда запущен процесс — важно для установки как службы Windows, где рабочая директория обычно не совпадает с папкой приложения):
 
-- `config/` — `settings.yaml` (настройки приложения), опционально `ldap.yaml`/`users.yaml`/`secret.yaml`/`sessions.yaml` (авторизация, см. «Авторизация» ниже); YAML-конфиги каналов лежат в подпапке `config/stations/`. Путь настраивается ключом `ConfigDir` в `appsettings.json` (по умолчанию `"config"`). При обновлении с версии до 0.00.061 старый `config/app.yaml` и лежавшие прямо в `config/` конфиги каналов переносятся в новый вид автоматически при первом запуске.
+- `config/` — `settings.yaml` (настройки приложения), опционально `ldap.yaml`/`users.yaml`/`secret.yaml`/`sessions.yaml` (авторизация, см. «Авторизация» ниже), опционально `livewire.yaml` (кэш обнаруженных Livewire-каналов, см. «Источники аудио» ниже — не требуется, если Livewire не используется); YAML-конфиги каналов лежат в подпапке `config/stations/`. Путь настраивается ключом `ConfigDir` в `appsettings.json` (по умолчанию `"config"`). При обновлении с версии до 0.00.061 старый `config/app.yaml` и лежавшие прямо в `config/` конфиги каналов переносятся в новый вид автоматически при первом запуске.
 - `log/` — файлы журнала, по одному на день. Путь настраивается ключом `LogDir` в `appsettings.json` (по умолчанию `"log"`).
 - `recording/` — записанные аудиофайлы по каналам (создаётся движком записи; на момент версии `0.00.002` реализовано для каналов `source.type: stream` — для `soundcard` движок ещё не реализован).
 
@@ -79,7 +82,7 @@ sc.exe delete QuinceAudioLogger
 ```yaml
 name: Ретро FM HLS
 source:
-  type: stream            # stream | soundcard
+  type: stream            # stream | soundcard | livewire
   url: https://.../playlist.m3u8
   stream_type: hls         # hls | icecast | icecast_mp3
   device_name: ''          # для type: soundcard
@@ -88,6 +91,9 @@ source:
   allow_http: false
   allow_invalid_ssl: false
   metadata_url: ''                     # '' | 'icy' | JSON-эндпоинт — можно вписать вручную или подставить кнопкой «Определить»
+  livewire_channel_number: 0           # для type: livewire — номер канала (1-65535); мультикаст-адрес 239.192.x.x считается автоматически. Сетевой интерфейс общий для всех Livewire-каналов — задаётся в общих настройках (settings.yaml/livewire_nic), не здесь
+  livewire_channel_name: ''            # отображаемое название — из автообнаружения или введено вручную
+  livewire_stereo: true                # моно/стерео — не определяется автоматически; неверное значение даёт неверную высоту звука (см. «Известные ограничения»)
 input_format:
   sample_rate: 0
   bit_depth: 0
@@ -175,6 +181,8 @@ news_keywords:                # слова-маркеры новостей дл�
 ui_language: ru               # ru | en — язык интерфейса, переключается в бургер-меню, живёт здесь между перезапусками
 show_tp_indicators: false     # показывать шкалу True Peak в карточке каждого канала (см. ниже), переключается в бургер-меню и в диалоге «Настройки приложения»
 auth_session_ttl_seconds: 604800   # время жизни сеанса входа (см. «Авторизация» ниже), по умолчанию неделя
+livewire_nic: ''               # Id сетевого адаптера для AoIP-сети Livewire — общий для всех livewire-каналов и автообнаружения (239.192.255.3:4001, см. LIVEWIRE.md); '' — Livewire не используется. Редактируется в диалоге «Настройки приложения», где рядом с выбором — кнопка «Подключить»/«Отключить» (открывает/закрывает сокет автообнаружения сразу, без перезапуска приложения).
+develop: false                     # true — в шапке приложения, на вкладке браузера, странице входа и окне «О программе» добавляется «— отладочная версия» (отличить тестовую сборку от рабочей)
 ```
 
 `reconnect_delay_seconds`/`reconnect_max_attempts` применяются сразу ко всем уже запущенным каналам без перезапуска (читаются заново при каждой попытке переподключения, а не один раз при старте канала — как и `ad_keywords` выше). Если задан ненулевой предел попыток и канал его исчерпал, он останавливается сам (карточка показывает красный индикатор статуса, см. выше), в лог пишется `ERROR`, и для возобновления записи канал нужно запустить заново вручную (или он подхватится сам при следующем запуске приложения, если у него включён `auto_start`).
@@ -310,20 +318,21 @@ authorization:
 
 - **`MOSCOW.md`** — не скрипт, а результат работы `Import-RadioPlayerStations.ps1`: таблица-справочник по московским станциям radioplayer.ru, используется как источник данных при добавлении новых каналов вручную.
 
-## Известные ограничения (по состоянию на 0.00.021)
+## Известные ограничения (по состоянию на 1.00.008)
 
 - Папка `config/RP/` (~150 доп. станций) не читается рекурсивно — обрабатываются только файлы верхнего уровня `config/stations/`.
+- **Источник `livewire` (AoIP) проверяется на реальном оборудовании впервые** — приём аудио (ffmpeg + `.sdp`) реализован по задокументированному рецепту. Формат канала (моно/стерео, `livewire_stereo`) не определяется автоматически — неверное значение искажает высоту звука (см. пример конфига выше); если высота звука при прослушке звучит неверно, переключите это поле. Сетевой интерфейс — общая настройка (`livewire_nic`, см. выше), не per-канал. Автообнаружение каналов через мультикаст Advertisement (239.192.255.3, порт **4001** — зафиксирован в коде, не настраивается: см. `LivewireDiscoveryService.AdvertisementPort`) реализовано, дополнено запросом LWRP (TCP порт 93) к каждому впервые увиденному узлу за именами, которых не даёт Advertisement — формат обоих протоколов реверс-инжинирен/перепроверен по реальному трафику, см. `LIVEWIRE.md`; на реальной сети далеко не у всех источников есть имя — для таких показывается только номер канала и (если известно) имя устройства отдельной колонкой. Список найденных каналов кэшируется в `config/livewire.yaml` по кнопке «Обновить» в диалоге редактирования канала — не автоматически при каждом обнаружении, — чтобы при следующем запуске приложения список не начинался пустым, пока не придёт свежий трафик.
 
 ## Структура проекта
 
 ```
 Quince.Service/
-  Audio/             — движок записи: StreamCapture/SoundcardCapture (IAudioCapture), AudioWriter, LevelMeter, SilenceDetector, ChannelEngine; метаданные — IcecastMetadataReader/HlsMetadataReader (IMetadataReader) + MetadataWriter (CSV)
+  Audio/             — движок записи: StreamCapture/SoundcardCapture/LivewireCapture (IAudioCapture, первые два через общий FfmpegPipedCapture), AudioWriter, LevelMeter, SilenceDetector, ChannelEngine; Audio/Livewire/ — LivewireDiscoveryService (автообнаружение AoIP-каналов); метаданные — IcecastMetadataReader/HlsMetadataReader (IMetadataReader) + MetadataWriter (CSV)
   Configuration/     — модели и загрузчики YAML-конфигов (ChannelConfig, AppConfig, LdapConfig, UsersConfig, SecretConfig, SessionsFile)
   Services/          — ChannelManager (CRUD каналов), AudioEngineManager, AppSettingsService, ChannelUiState, LocalizationService, MetadataDetectionService, NativeFolderPicker, файловый логгер, форматирование для UI
   Services/Auth/     — AuthService, LdapAuthenticator, PasswordHasher, CurrentUserContext (см. «Авторизация» выше)
   Pages/             — Blazor-страницы и layout (топбар, бургер-меню, карточки каналов, диалоги редактирования/индикаторов/настроек); Login.cshtml — отдельная (не Blazor) страница входа
-  config/            — settings.yaml, опционально ldap.yaml/users.yaml/secret.yaml/sessions.yaml, конфиги каналов в stations/ (в .gitignore — машино-специфичные реальные данные, копируются в выходную папку сборки)
+  config/            — settings.yaml, опционально ldap.yaml/users.yaml/secret.yaml/sessions.yaml/livewire.yaml, конфиги каналов в stations/ (в .gitignore — машино-специфичные реальные данные, копируются в выходную папку сборки)
   config.demo/       — те же файлы с примерами/заглушками и подробными комментариями — шаблон для первого запуска на новой машине, в git (копируется в выходную папку сборки)
   i18n/              — тексты интерфейса ru.json/en.json (копируются в выходную папку сборки)
   redist/ucrt/       — Universal CRT app-local DLL для Windows без встроенной UCRT (копируются в выходную папку сборки)

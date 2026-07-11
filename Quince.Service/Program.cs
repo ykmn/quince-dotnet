@@ -65,6 +65,9 @@ builder.Services.AddHostedService(sp => sp.GetRequiredService<ChannelManager>())
 builder.Services.AddSingleton<AudioEngineManager>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<AudioEngineManager>());
 
+builder.Services.AddSingleton<Quince.Service.Audio.Livewire.LivewireDiscoveryService>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<Quince.Service.Audio.Livewire.LivewireDiscoveryService>());
+
 builder.Services.AddScoped<ChannelUiState>();
 builder.Services.AddSingleton<FolderBrowserService>();
 builder.Services.AddSingleton<MetadataDetectionService>();
