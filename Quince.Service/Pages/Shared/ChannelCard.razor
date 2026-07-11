@@ -109,10 +109,10 @@
         _ => "",
     };
 
-    private string StatusDotClass => _status switch
+    private string StatusDotClass => ChannelDisplayFormatter.ClassifyRunState(_status) switch
     {
-        { IsRecording: true } => "dot-green",
-        { HasError: true } => "dot-red",
+        ChannelRunState.Running => "dot-green",
+        ChannelRunState.Error => "dot-red",
         _ => "",
     };
 
@@ -158,7 +158,7 @@
         _ => Loc["channelCard.soundPresent"],
     };
 
-    private bool IsEligibleType => Config.Source.Type is "stream" or "soundcard";
+    private bool IsEligibleType => Config.Source.Type is "stream" or "soundcard" or "livewire";
 
     private string LevelValueText => double.IsNegativeInfinity(_level.TruePeakDb)
         ? "—"

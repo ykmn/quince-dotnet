@@ -1,7 +1,9 @@
 @page "/"
+@using Quince.Service.Audio
 @using Quince.Service.Configuration
 @using Quince.Service.Services
 @inject ChannelManager ChannelManager
+@inject AudioEngineManager EngineManager
 @inject ChannelUiState UiState
 @inject LocalizationService Loc
 @implements IDisposable
@@ -11,6 +13,16 @@
         <input @bind="FilterText" @bind:event="oninput" placeholder="@Loc["index.filterPlaceholder"]"
                title="@Loc["index.filterTitle"]" />
     </div>
+
+    <button type="button" class="dialog-tab filter-cycle-btn @RunStateFilterCssClass"
+            title="@Loc["index.runStateFilterTitle"]" @onclick="CycleRunStateFilter">
+        @Loc["index.runStateFilterLabel"] @RunStateFilterValueLabel
+    </button>
+
+    <button type="button" class="dialog-tab filter-cycle-btn @MetadataFilterCssClass"
+            title="@Loc["index.metadataFilterTitle"]" @onclick="CycleMetadataFilter">
+        @Loc["index.metadataFilterLabel"] @MetadataFilterValueLabel
+    </button>
 
     @if (UiState.BulkSelectMode)
     {
@@ -62,13 +74,95 @@
 @code {
     private string FilterText { get; set; } = "";
 
+    // Cycle order for the "Статус" button: null ("Все") → Running → Stopped → Error → back to null.
+    private static readonly ChannelRunState?[] RunStateCycle =
+        { null, ChannelRunState.Running, ChannelRunState.Stopped, ChannelRunState.Error };
+
+    private enum MetadataFilterOption { All, Errors, Missing }
+
+    // Cycle order for the "Метаданные" button: All → Errors → Missing → back to All.
+    private static readonly MetadataFilterOption[] MetadataFilterCycle =
+        { MetadataFilterOption.All, MetadataFilterOption.Errors, MetadataFilterOption.Missing };
+
+    private ChannelRunState? _runStateFilter;
+    private MetadataFilterOption _metadataFilter = MetadataFilterOption.All;
+
+    private string RunStateFilterValueLabel => _runStateFilter switch
+    {
+        null => Loc["index.filterAll"],
+        ChannelRunState.Running => Loc["index.filterRunning"],
+        ChannelRunState.Stopped => Loc["index.filterStopped"],
+        ChannelRunState.Error => Loc["index.filterError"],
+        _ => "",
+    };
+
+    private string MetadataFilterValueLabel => _metadataFilter switch
+    {
+        MetadataFilterOption.Errors => Loc["index.metadataFilterErrors"],
+        MetadataFilterOption.Missing => Loc["index.metadataFilterMissing"],
+        _ => Loc["index.filterAll"],
+    };
+
+    // Background tint reflects the currently selected value (not just "is a filter active"), so the
+    // button's own color already tells you what it's set to at a glance.
+    private string RunStateFilterCssClass => _runStateFilter switch
+    {
+        null => "filter-state-all",
+        ChannelRunState.Running => "filter-state-running",
+        ChannelRunState.Stopped => "filter-state-stopped",
+        ChannelRunState.Error => "filter-state-error",
+        _ => "filter-state-all",
+    };
+
+    private string MetadataFilterCssClass => _metadataFilter switch
+    {
+        MetadataFilterOption.Errors => "filter-state-errors",
+        MetadataFilterOption.Missing => "filter-state-missing",
+        _ => "filter-state-all",
+    };
+
+    private void CycleRunStateFilter()
+    {
+        var index = Array.IndexOf(RunStateCycle, _runStateFilter);
+        _runStateFilter = RunStateCycle[(index + 1) % RunStateCycle.Length];
+        StateHasChanged();
+    }
+
+    private void CycleMetadataFilter()
+    {
+        var index = Array.IndexOf(MetadataFilterCycle, _metadataFilter);
+        _metadataFilter = MetadataFilterCycle[(index + 1) % MetadataFilterCycle.Length];
+        StateHasChanged();
+    }
+
     private IEnumerable<ChannelConfig> FilteredChannels =>
         ChannelManager.Channels.Where(c =>
-            string.IsNullOrWhiteSpace(FilterText) ||
-            c.Name.Contains(FilterText, StringComparison.OrdinalIgnoreCase));
+            (string.IsNullOrWhiteSpace(FilterText) ||
+             c.Name.Contains(FilterText, StringComparison.OrdinalIgnoreCase)) &&
+            MatchesRunStateFilter(c) &&
+            MatchesMetadataFilter(c));
+
+    private bool MatchesRunStateFilter(ChannelConfig c)
+    {
+        if (_runStateFilter is null) return true;
+        var status = EngineManager.GetStatus(c.Name) ?? new EngineStatus();
+        return ChannelDisplayFormatter.ClassifyRunState(status) == _runStateFilter;
+    }
+
+    private bool MatchesMetadataFilter(ChannelConfig c)
+    {
+        if (_metadataFilter == MetadataFilterOption.All) return true;
+        var status = EngineManager.GetStatus(c.Name) ?? new EngineStatus();
+        return _metadataFilter switch
+        {
+            MetadataFilterOption.Errors => status.MetadataOk == false,
+            MetadataFilterOption.Missing => status.MetadataOk == null,
+            _ => true,
+        };
+    }
 
     // Selects only the currently filtered/visible channels, not every channel in the app — matches
-    // what the user can actually see on screen while the name filter is active.
+    // what the user can actually see on screen while the name/status/metadata filters are active.
     private void SelectAllFiltered() => UiState.SelectAll(FilteredChannels.Select(c => c.Filename));
 
     protected override void OnInitialized()
@@ -78,6 +172,7 @@
         ChannelManager.ChannelRemoved += OnChannelsChanged;
         UiState.Changed += OnUiStateChanged;
         Loc.Changed += OnUiStateChanged;
+        EngineManager.StatusUpdated += OnEngineStatusUpdated;
     }
 
     private void OnChannelsChanged(ChannelConfig config) => InvokeAsync(StateHasChanged);
@@ -86,6 +181,11 @@
 
     private void OnUiStateChanged() => InvokeAsync(StateHasChanged);
 
+    // Unlike ChannelCard's own per-card, name-scoped subscription, this list's filtered view can
+    // depend on ANY channel's status changing (not just one), so every StatusUpdated firing needs to
+    // re-evaluate FilteredChannels — no channelName/status params to check here.
+    private void OnEngineStatusUpdated(string channelName, EngineStatus status) => InvokeAsync(StateHasChanged);
+
     public void Dispose()
     {
         ChannelManager.ChannelAdded -= OnChannelsChanged;
@@ -93,5 +193,6 @@
         ChannelManager.ChannelRemoved -= OnChannelsChanged;
         UiState.Changed -= OnUiStateChanged;
         Loc.Changed -= OnUiStateChanged;
+        EngineManager.StatusUpdated -= OnEngineStatusUpdated;
     }
 }

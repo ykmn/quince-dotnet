@@ -15,7 +15,7 @@
     <div class="app-brand">
         <a class="app-brand-link" href="/" title="@Loc["topbar.homeTitle"]">
             <img src="icon.svg" width="64" height="64" alt="" />
-            <span class="app-name">Айва</span>
+            <span class="app-name">Айва@(DevelopSuffix)</span>
         </a>
     </div>
     <div class="hamburger-wrap">
@@ -86,7 +86,7 @@
         <div class="modal-box" @onclick:stopPropagation="true">
             <div class="about-header">
                 <img src="icon.svg" width="48" height="48" alt="" />
-                <h2>@Loc["about.title"]</h2>
+                <h2>@Loc["about.title"]@(DevelopSuffix)</h2>
             </div>
             <p>@Loc["about.subtitle"]</p>
             <p>@Loc.T("about.version", _version)</p>
@@ -136,6 +136,11 @@
     private bool _menuOpen;
     private bool _aboutOpen;
     private readonly string _version = "v" + VersionInfo.Version;
+
+    /// <summary>" отладочная версия" when <see cref="Configuration.AppConfig.Develop"/> is set —
+    /// lets whoever's running this instance tell a debug/test build apart from a normal production
+    /// one at a glance (topbar brand, browser tab title, login page, About dialog all use this).</summary>
+    private string DevelopSuffix => AppSettings.Current.Develop ? " отладочная версия" : "";
 
     // Theme is client-only (localStorage, applied pre-paint by the inline script in _Host.cshtml —
     // see theme.js) so the server can't know the real value until after first render; "light"

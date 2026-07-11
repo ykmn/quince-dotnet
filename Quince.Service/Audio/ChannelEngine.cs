@@ -17,6 +17,7 @@ public sealed class ChannelEngine
     private readonly Func<int> _getReconnectDelaySeconds;
     private readonly Func<int> _getReconnectMaxAttempts;
     private readonly Func<double> _getPlayoutBufferSeconds;
+    private readonly Func<string> _getLivewireNic;
 
     private volatile string? _metadataText;
 
@@ -43,7 +44,8 @@ public sealed class ChannelEngine
         Func<int>? getReconnectDelaySeconds = null, Func<int>? getReconnectMaxAttempts = null,
         Func<IReadOnlyList<string>>? getNewsKeywords = null,
         Action<string>? onMetadataUpdate = null,
-        Func<double>? getPlayoutBufferSeconds = null)
+        Func<double>? getPlayoutBufferSeconds = null,
+        Func<string>? getLivewireNic = null)
     {
         _config = config;
         _ffmpegPath = ffmpegPath;
@@ -58,6 +60,7 @@ public sealed class ChannelEngine
         _getNewsKeywords = getNewsKeywords;
         _onMetadataUpdate = onMetadataUpdate;
         _getPlayoutBufferSeconds = getPlayoutBufferSeconds ?? (() => PlayoutBuffer.DefaultTargetDelaySeconds);
+        _getLivewireNic = getLivewireNic ?? (() => "");
     }
 
     public EngineStatus Status
@@ -87,13 +90,18 @@ public sealed class ChannelEngine
         var log = _loggerFactory.CreateLogger("ChannelEngine");
         using var scope = log.BeginScope(new Dictionary<string, object> { ["Channel"] = _config.Name });
 
-        _capture = _config.Source.Type == "soundcard"
-            ? new SoundcardCapture(_config.Source, _getReconnectDelaySeconds, _getReconnectMaxAttempts,
-                _loggerFactory.CreateLogger("SoundcardCapture"), OnReconnectExhausted, _config.Name)
-            : new StreamCapture(_ffmpegPath, _config.Source.Url, _config.Source.StreamType,
+        _capture = _config.Source.Type switch
+        {
+            "soundcard" => new SoundcardCapture(_config.Source, _getReconnectDelaySeconds, _getReconnectMaxAttempts,
+                _loggerFactory.CreateLogger("SoundcardCapture"), OnReconnectExhausted, _config.Name),
+            "livewire" => new LivewireCapture(_ffmpegPath, _config.Source, _getLivewireNic(),
+                _getReconnectDelaySeconds, _getReconnectMaxAttempts,
+                _loggerFactory.CreateLogger("LivewireCapture"), OnReconnectExhausted, _config.Name),
+            _ => new StreamCapture(_ffmpegPath, _config.Source.Url, _config.Source.StreamType,
                 _config.Source.AllowInvalidSsl, _config.Source.HlsBitrateIndex,
                 _getReconnectDelaySeconds, _getReconnectMaxAttempts,
-                _loggerFactory.CreateLogger("StreamCapture"), OnReconnectExhausted, _config.Name);
+                _loggerFactory.CreateLogger("StreamCapture"), OnReconnectExhausted, _config.Name),
+        };
 
         // Wrapped in a PlayoutBuffer (docs/HISTORY.md #61) so the on-screen meter/goniometer lag
         // real time by a fixed ~12s instead of visibly freezing/snapping on every producer-side gap
@@ -278,6 +286,8 @@ public sealed class ChannelEngine
             || old.Source.DeviceName != newConfig.Source.DeviceName
             || old.Source.DeviceIndex != newConfig.Source.DeviceIndex
             || old.Source.DeviceUid != newConfig.Source.DeviceUid
+            || old.Source.LivewireChannelNumber != newConfig.Source.LivewireChannelNumber
+            || old.Source.LivewireStereo != newConfig.Source.LivewireStereo
             || old.OutputFormat.FileFormat != newConfig.OutputFormat.FileFormat
             || old.OutputFormat.Mode != newConfig.OutputFormat.Mode
             || old.OutputFormat.SampleRate != newConfig.OutputFormat.SampleRate

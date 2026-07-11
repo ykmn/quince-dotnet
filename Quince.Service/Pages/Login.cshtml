@@ -1,15 +1,18 @@
 @page "/login"
 @namespace Quince.Service.Pages
 @addTagHelper *, Microsoft.AspNetCore.Mvc.TagHelpers
+@using Quince.Service.Services
+@inject AppSettingsService AppSettings
 @{
     Layout = null;
+    var developSuffix = AppSettings.Current.Develop ? " отладочная версия" : "";
 }
 <!DOCTYPE html>
 <html lang="ru">
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Вход — Айва</title>
+    <title>Вход — Айва@(developSuffix)</title>
     <link rel="icon" type="image/svg+xml" href="icon.svg" />
     <style>
         body {
@@ -82,7 +85,7 @@
     <div class="login-box">
         <div class="login-brand">
             <img src="icon.svg" width="32" height="32" alt="" />
-            <span>Айва</span>
+            <span>Айва@(developSuffix)</span>
         </div>
         <form id="login-form">
             <label for="username">Пользователь</label>

@@ -410,6 +410,48 @@ body {
     border-color: #2563eb;
 }
 
+/* Статус/Метаданные toggle buttons next to the name filter — each click cycles its own filter to
+   the next value (Все → ... → back to Все). Fixed min-width (sized to the longest label either
+   button can ever show, "Метаданные: Ошибки в метаданных") so cycling through shorter/longer labels
+   never jitters the toolbar layout, and the two buttons read as a matched pair regardless of which
+   value each currently shows. */
+.filter-cycle-btn {
+    min-width: 270px;
+    text-align: center;
+}
+
+/* Background tints the currently selected value, not just "a filter is active" — same literal
+   (non-themed) color pairs as .btn-start/.btn-stop/.form-hint-neutral elsewhere, reused here rather
+   than invented fresh, and left un-themed for the same reason those are: a status color should read
+   the same regardless of light/dark mode. Two-class selectors so they win over the plain .dialog-tab
+   rule regardless of stylesheet order (see the .btn-small/.btn-start pitfall noted elsewhere in this
+   file). */
+.filter-cycle-btn.filter-state-all {
+    background: #ffffff;
+    color: #374151;
+    border: 1px solid #d1d5db;
+}
+
+.filter-cycle-btn.filter-state-running {
+    background: #dcfce7;
+    color: #15803d;
+    border: 1px solid #bbf7d0;
+}
+
+.filter-cycle-btn.filter-state-stopped,
+.filter-cycle-btn.filter-state-missing {
+    background: #f3f4f6;
+    color: #555555;
+    border: 1px solid #e5e7eb;
+}
+
+.filter-cycle-btn.filter-state-error,
+.filter-cycle-btn.filter-state-errors {
+    background: #fee2e2;
+    color: #b91c1c;
+    border: 1px solid #fecaca;
+}
+
 .status-bar {
     display: flex;
     align-items: center;
@@ -836,6 +878,86 @@ body {
     border: 1px solid var(--quince-yellow-border);
 }
 
+/* ── Livewire channel-discovery table (ChannelEditDialog, source.type == "livewire") ──── */
+
+.livewire-filter-row {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    margin-bottom: 6px;
+}
+
+.livewire-filter-row input {
+    flex: 1;
+}
+
+.livewire-channel-table-wrap {
+    max-height: 220px;
+    overflow-y: auto;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+}
+
+.livewire-channel-table {
+    width: 100%;
+    table-layout: fixed;
+    border-collapse: collapse;
+    font-size: 12px;
+}
+
+.livewire-channel-table th,
+.livewire-channel-table td {
+    padding: 5px 8px;
+    text-align: left;
+    border-bottom: 1px solid var(--border);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.livewire-channel-table th {
+    background: var(--surface-alt);
+    position: sticky;
+    top: 0;
+    user-select: none;
+}
+
+.livewire-channel-table th .col-resizer {
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: 6px;
+    cursor: col-resize;
+    touch-action: none;
+}
+
+.livewire-channel-table th .col-resizer:hover,
+.livewire-channel-table th .col-resizer:active {
+    background: var(--quince-yellow-text);
+    opacity: 0.5;
+}
+
+.livewire-channel-row {
+    cursor: pointer;
+}
+
+.livewire-channel-row:hover {
+    background: var(--surface-hover);
+}
+
+.livewire-channel-row-selected,
+.livewire-channel-row-selected:hover {
+    background: var(--quince-yellow-bg);
+    color: var(--quince-yellow-text);
+}
+
+.livewire-channel-empty {
+    padding: 10px;
+    color: var(--text-secondary);
+    font-size: 12px;
+}
+
 .dialog-tab.dialog-tab-active:hover {
     background: var(--quince-yellow-hover);
 }
@@ -1228,6 +1350,13 @@ body {
     flex-shrink: 0;
 }
 
+/* Plain row of buttons under a field (e.g. Livewire NIC's Обновить/Подключить), no stretched
+   input/select to align against like .input-with-button has. */
+.button-row {
+    display: flex;
+    gap: 6px;
+}
+
 .folder-browser-path {
     display: flex;
     gap: 6px;
@@ -1262,14 +1391,53 @@ body {
     padding: 4px;
 }
 
+/* Explicit, always-visible scrollbar for the app's internal scrollable panels. Without this, the
+   native scrollbar on Windows/Chromium can render as a near-invisible "overlay" (only appears while
+   actively scrolling, or is suppressed entirely by the OS's "automatically hide scrollbars" setting)
+   — a genuinely scrollable list (confirmed: scrollTop responds fine to wheel input) then LOOKS like
+   its content is just cut off with no way to reach the rest. Scoped to the panels that actually
+   scroll their own content, not applied globally. */
+.folder-browser-list,
+.livewire-channel-table-wrap,
+.modal-box-wide {
+    scrollbar-width: thin; /* Firefox */
+    scrollbar-color: var(--border-strong) transparent;
+}
+
+.folder-browser-list::-webkit-scrollbar,
+.livewire-channel-table-wrap::-webkit-scrollbar,
+.modal-box-wide::-webkit-scrollbar {
+    width: 10px;
+}
+
+.folder-browser-list::-webkit-scrollbar-track,
+.livewire-channel-table-wrap::-webkit-scrollbar-track,
+.modal-box-wide::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.folder-browser-list::-webkit-scrollbar-thumb,
+.livewire-channel-table-wrap::-webkit-scrollbar-thumb,
+.modal-box-wide::-webkit-scrollbar-thumb {
+    background: var(--border-strong);
+    border-radius: 6px;
+}
+
 .folder-browser-item {
     display: block;
     width: 100%;
+    /* Without this, being a flex child of `.folder-browser-list` (flex-direction: column) lets the
+       browser shrink every row well below its natural content height instead of letting the list
+       overflow into its own scrollbar — with enough rows (a real drive root easily has 20-30+) each
+       button was measured collapsing to ~12px tall (padding alone is 12px), squashing every row's
+       text into its neighbors instead of actually scrolling. */
+    flex-shrink: 0;
     text-align: left;
     background: transparent;
     border: none;
     border-radius: 6px;
     padding: 6px 8px;
+    font-family: inherit; /* buttons don't inherit font-family by default — was falling back to Arial */
     font-size: 12px;
     color: var(--text);
     cursor: pointer;

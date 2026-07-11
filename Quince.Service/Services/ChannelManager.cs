@@ -23,7 +23,10 @@ public class ChannelManager : IHostedService
     /// <summary>Fired after a channel is created (via dialog, clone, or discovered by Reload()).</summary>
     public event Action<ChannelConfig>? ChannelAdded;
 
-    /// <summary>Fired after a channel's config changes in place (old, new) — filename/key is unchanged.</summary>
+    /// <summary>Fired after a channel's config changes in place (old, new). The in-memory/engine key
+    /// is always <see cref="ChannelConfig.Name"/> (see <see cref="AudioEngineManager.OnChannelUpdated"/>),
+    /// unaffected by this — but <see cref="ChannelConfig.Filename"/> itself may also have changed if
+    /// the name did (see <see cref="Update"/>).</summary>
     public event Action<ChannelConfig, ChannelConfig>? ChannelUpdated;
 
     /// <summary>Fired after a channel is deleted or disappears from disk (picked up by Reload()).</summary>
@@ -103,11 +106,29 @@ public class ChannelManager : IHostedService
             if (index < 0) throw new InvalidOperationException($"Канал с файлом '{filename}' не найден");
             old = _channels[index];
 
-            updated.Filename = filename;
+            // Keep the .yaml filename in sync with the channel's display name — a rename in the edit
+            // dialog previously left the on-disk filename stale (e.g. "Test.yaml" still named that
+            // after renaming the channel to "Студия А"), which was confusing when browsing
+            // config/stations/ directly. Excludes this channel's own current filename from the
+            // collision check, since it's the one being freed up by the rename.
+            var newFilename = filename;
+            if (!string.Equals(old.Name, updated.Name, StringComparison.Ordinal))
+            {
+                var others = _channels.Where(c => c.Filename != filename).Select(c => c.Filename);
+                newFilename = GenerateFilename(updated.Name, others);
+            }
+
+            updated.Filename = newFilename;
             _loader.Save(_stationsDir, updated);
+            if (newFilename != filename)
+            {
+                var oldPath = Path.Combine(_stationsDir, filename);
+                try { File.Delete(oldPath); }
+                catch (IOException ex) { _logger.LogWarning(ex, "Не удалось удалить старый файл конфига {File} после переименования", filename); }
+            }
             _channels[index] = updated;
             using (_logger.BeginScope(new Dictionary<string, object> { ["Channel"] = updated.Name }))
-                _logger.LogInformation("Канал обновлён ({File})", filename);
+                _logger.LogInformation("Канал обновлён ({File})", newFilename);
         }
         ChannelUpdated?.Invoke(old, updated);
         return updated;

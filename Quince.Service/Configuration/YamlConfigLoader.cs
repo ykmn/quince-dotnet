@@ -76,6 +76,24 @@ public class YamlConfigLoader
     {
         var path = Path.Combine(configDir, config.Filename);
         var text = _serializer.Serialize(config);
+        WriteTextClearingReadOnly(path, text);
+    }
+
+    /// <summary>Plain <see cref="File.WriteAllText(string,string)"/> throws
+    /// <see cref="UnauthorizedAccessException"/> not just for a genuine ACL denial but also for the
+    /// much more mundane case of the target file having the Windows "read-only" attribute set (common
+    /// after copying from a zip/network share/backup, or a prior manual edit in an editor that
+    /// preserves it) — clear that attribute first so a stale flag doesn't masquerade as a permissions
+    /// problem. A real ACL/Controlled-Folder-Access denial still throws through normally; this only
+    /// removes the one cause that's both common and trivially fixable in-process.</summary>
+    private static void WriteTextClearingReadOnly(string path, string text)
+    {
+        if (File.Exists(path))
+        {
+            var attributes = File.GetAttributes(path);
+            if (attributes.HasFlag(FileAttributes.ReadOnly))
+                File.SetAttributes(path, attributes & ~FileAttributes.ReadOnly);
+        }
         File.WriteAllText(path, text);
     }
 
@@ -94,7 +112,7 @@ public class YamlConfigLoader
     {
         var path = Path.Combine(configDir, "settings.yaml");
         var text = _serializer.Serialize(config);
-        File.WriteAllText(path, text);
+        WriteTextClearingReadOnly(path, text);
     }
 
     /// <summary>settings.yaml was previously named app.yaml — on an already-deployed instance, rename
@@ -216,11 +234,45 @@ public class YamlConfigLoader
         {
             var path = Path.Combine(configDir, "sessions.yaml");
             var text = _serializer.Serialize(sessions);
-            File.WriteAllText(path, text);
+            WriteTextClearingReadOnly(path, text);
         }
         catch (Exception ex)
         {
             LogLoadError(Path.Combine(configDir, "sessions.yaml"), ex);
+        }
+    }
+
+    public LivewireCacheFile LoadLivewireCache(string configDir)
+    {
+        var path = Path.Combine(configDir, "livewire.yaml");
+        if (!File.Exists(path))
+            return new LivewireCacheFile();
+
+        try
+        {
+            var text = File.ReadAllText(path);
+            return _deserializer.Deserialize<LivewireCacheFile>(text) ?? new LivewireCacheFile();
+        }
+        catch (Exception ex)
+        {
+            LogLoadError(path, ex);
+            return new LivewireCacheFile();
+        }
+    }
+
+    /// <summary>Best-effort, same as <see cref="SaveSessions"/> — a stale/unwritable cache just means
+    /// the picker starts empty next run, not a reason to disrupt whatever UI action triggered the save.</summary>
+    public void SaveLivewireCache(string configDir, LivewireCacheFile cache)
+    {
+        try
+        {
+            var path = Path.Combine(configDir, "livewire.yaml");
+            var text = _serializer.Serialize(cache);
+            WriteTextClearingReadOnly(path, text);
+        }
+        catch (Exception ex)
+        {
+            LogLoadError(Path.Combine(configDir, "livewire.yaml"), ex);
         }
     }
 }

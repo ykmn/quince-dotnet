@@ -1,5 +1,6 @@
 @using Microsoft.AspNetCore.Components
 @using Quince.Service.Audio
+@using Quince.Service.Audio.Livewire
 @using Quince.Service.Configuration
 @using Quince.Service.Services
 @inject ChannelManager ChannelManager
@@ -7,6 +8,8 @@
 @inject ChannelUiState UiState
 @inject MetadataDetectionService MetadataService
 @inject LocalizationService Loc
+@inject LivewireDiscoveryService LivewireDiscovery
+@inject IJSRuntime JS
 
 <div class="modal-overlay">
     <div class="modal-box modal-box-wide" @onclick:stopPropagation="true">
@@ -35,6 +38,10 @@
                 <select @bind="_draft.Source.Type" @bind:after="OnSourceTypeChanged" title="@Loc["channelEdit.sourceTypeTitle"]">
                     <option value="stream">@Loc["channelEdit.sourceTypeStream"]</option>
                     <option value="soundcard">@Loc["channelEdit.sourceTypeSoundcard"]</option>
+                    @if (IsLivewireConnected || _draft.Source.Type == "livewire")
+                    {
+                        <option value="livewire">@Loc["channelEdit.sourceTypeLivewire"]</option>
+                    }
                 </select>
 
                 @if (_draft.Source.Type == "stream")
@@ -86,7 +93,7 @@
                         <div class="@_metadataStatusClass">@_metadataStatusText</div>
                     }
                 }
-                else
+                else if (_draft.Source.Type == "soundcard")
                 {
                     <label title="@Loc["channelEdit.deviceTitle"]">@Loc["channelEdit.deviceLabel"]</label>
                     <div class="input-with-button">
@@ -115,6 +122,66 @@
 
                     <label title="@Loc["channelEdit.deviceNameTitle"]">@Loc["channelEdit.deviceNameLabel"]</label>
                     <input @bind="_draft.Source.DeviceName" title="@Loc["channelEdit.deviceNameTitle"]" />
+                }
+                else if (_draft.Source.Type == "livewire")
+                {
+                    <label></label>
+                    <div class="livewire-filter-row">
+                        <input @bind="_livewireFilter" @bind:event="oninput" placeholder="@Loc["channelEdit.livewireFilterPlaceholder"]" />
+                        <button type="button" class="btn btn-small" @onclick="OnRefreshLivewireClicked" title="@Loc["channelEdit.livewireRefreshTitle"]">@Loc["common.refresh"]</button>
+                    </div>
+
+                    <label></label>
+                    <div class="livewire-channel-table-wrap">
+                        @if (FilteredLivewireChannels.Count == 0)
+                        {
+                            <div class="livewire-channel-empty">@Loc.T("channelEdit.livewireNoChannelsFoundListening", LivewireDiscoveryService.AdvertisementPort)</div>
+                        }
+                        else
+                        {
+                            <table class="livewire-channel-table" id="livewire-channel-table">
+                                <thead>
+                                    <tr>
+                                        <th>№<span class="col-resizer"></span></th>
+                                        <th>@Loc["channelEdit.livewireColumnName"]<span class="col-resizer"></span></th>
+                                        <th>@Loc["channelEdit.livewireColumnDeviceName"]<span class="col-resizer"></span></th>
+                                        <th>@Loc["channelEdit.livewireColumnDeviceIp"]<span class="col-resizer"></span></th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var c in FilteredLivewireChannels)
+                                    {
+                                        <tr class="livewire-channel-row @(c.Number == _draft.Source.LivewireChannelNumber ? "livewire-channel-row-selected" : "")"
+                                            @onclick="() => SelectLivewireChannel(c)">
+                                            <td>@c.Number</td>
+                                            <td>@c.Name</td>
+                                            <td>@c.DeviceName</td>
+                                            <td>@(c.DeviceIp?.ToString() ?? "")</td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        }
+                    </div>
+                    <label></label>
+                    <div class="form-hint-neutral">@Loc.T("channelEdit.livewireFoundCount", FilteredLivewireChannels.Count)</div>
+
+                    <label></label>
+                    <div class="@DiscoveryStatusClass">@DiscoveryStatusText</div>
+
+                    <label title="@Loc["channelEdit.livewireStereoTitle"]">@Loc["channelEdit.livewireStereoLabel"]</label>
+                    <select @bind="_draft.Source.LivewireStereo" title="@Loc["channelEdit.livewireStereoTitle"]">
+                        <option value="true">@Loc["channelEdit.channelsStereo"]</option>
+                        <option value="false">@Loc["channelEdit.channelsMono"]</option>
+                    </select>
+                    <label></label>
+                    <div class="form-hint-neutral">@Loc["channelEdit.livewireStereoHint"]</div>
+
+                    <label title="@Loc["channelEdit.livewireChannelNumberTitle"]">@Loc["channelEdit.livewireChannelNumberLabel"]</label>
+                    <input type="number" @bind="_draft.Source.LivewireChannelNumber" title="@Loc["channelEdit.livewireChannelNumberTitle"]" />
+
+                    <label title="@Loc["channelEdit.livewireChannelNameTitle"]">@Loc["channelEdit.livewireChannelNameLabel"]</label>
+                    <input @bind="_draft.Source.LivewireChannelName" title="@Loc["channelEdit.livewireChannelNameTitle"]" />
                 }
             </div>
         }
@@ -251,11 +318,38 @@
     private List<SoundcardCapture.RecordDeviceInfo> _devices = new();
     private string? _deviceListError;
 
+    private List<DiscoveredLivewireChannel> _livewireChannels = new();
+    private string _livewireFilter = "";
+    private LivewireDiscoveryStatus? _discoveryStatus;
+
     private bool _detectingMetadata;
     private string? _metadataStatusText;
     private string _metadataStatusClass = "form-hint-neutral";
 
     private string OriginalModeResolvedFormat => AudioWriter.ResolveEffectiveFormat(_draft).FileFormat.ToUpperInvariant();
+
+    private List<DiscoveredLivewireChannel> FilteredLivewireChannels => string.IsNullOrWhiteSpace(_livewireFilter)
+        ? _livewireChannels
+        : _livewireChannels.Where(c =>
+                c.Name.Contains(_livewireFilter, StringComparison.OrdinalIgnoreCase) ||
+                c.Number.ToString().Contains(_livewireFilter, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+
+    /// <summary>Human-readable line for what <see cref="LivewireDiscoveryService"/> is doing right now
+    /// (listening/disabled/error, and whether any traffic has actually arrived) — a snapshot taken
+    /// alongside <see cref="RefreshLivewireChannels"/>, not a live push, same as the "Найдено N каналов"
+    /// line above it. Formatting is shared with <c>AppSettingsDialog</c>'s Подключить/Отключить status
+    /// line via <see cref="LivewireStatusFormatter"/>, so the two never describe the same state differently.</summary>
+    private string DiscoveryStatusText => LivewireStatusFormatter.Text(_discoveryStatus, Loc);
+
+    private string DiscoveryStatusClass => LivewireStatusFormatter.CssClass(_discoveryStatus);
+
+    /// <summary>Whether the "livewire" option should be offered in the source-type <c>&lt;select&gt;</c>
+    /// below: while the discovery socket isn't connected (App Settings' Подключить/Отключить toggle),
+    /// a new Livewire channel can't be created — though a channel already set to "livewire" stays
+    /// selectable/visible while it's open for editing, regardless of connection state (see the
+    /// surrounding <c>@if</c> on the option itself).</summary>
+    private bool IsLivewireConnected => LivewireDiscovery.GetStatus().State == LivewireDiscoveryState.Listening;
 
     protected override void OnInitialized()
     {
@@ -268,6 +362,8 @@
         if (_draft.Source.StreamType == "icecast_mp3") _draft.Source.StreamType = "icecast";
         if (_draft.Source.Type == "soundcard")
             RefreshDevices();
+        else if (_draft.Source.Type == "livewire")
+            RefreshLivewireChannels();
         else
             ApplyPopulateMetadataLabel();
     }
@@ -275,6 +371,17 @@
     private void OnSourceTypeChanged()
     {
         if (_draft.Source.Type == "soundcard") RefreshDevices();
+        else if (_draft.Source.Type == "livewire") RefreshLivewireChannels();
+    }
+
+    /// <summary>Re-attaches the column-resize drag handles every render — cheap no-op once the table's
+    /// already wired up (see columnResize.js's own dataset guard), but needed at least once after the
+    /// Livewire tab's table first appears in the DOM (it doesn't exist yet on the dialog's very first
+    /// render if the channel being edited isn't a Livewire source, or the table is in its empty state).</summary>
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_draft.Source.Type == "livewire" && FilteredLivewireChannels.Count > 0)
+            await JS.InvokeVoidAsync("quinceColumnResize.init", "livewire-channel-table");
     }
 
     private void Close() => UiState.CloseEditChannel();
@@ -317,6 +424,33 @@
         var match = _devices.FirstOrDefault(d => d.Id == uid);
         if (!string.IsNullOrEmpty(uid) && !string.IsNullOrEmpty(match.Name))
             _draft.Source.DeviceName = match.Name;
+    }
+
+    /// <summary>Pulls the current snapshot from the app-wide <see cref="LivewireDiscoveryService"/> —
+    /// empty until at least one Advertisement/LWRP sighting has come in (or a cached
+    /// <c>livewire.yaml</c> was loaded at startup), in which case the table shows the empty-state hint
+    /// and manual entry remains the working path.</summary>
+    private void RefreshLivewireChannels()
+    {
+        _livewireChannels = LivewireDiscovery.GetSnapshot().ToList();
+        _discoveryStatus = LivewireDiscovery.GetStatus();
+    }
+
+    /// <summary>The "Обновить" button does both: refreshes what's shown right now, and persists that
+    /// snapshot to <c>config/livewire.yaml</c> so it's there immediately on the next app start instead
+    /// of an empty list until fresh traffic arrives. Deliberately not tied to every dialog open/source-
+    /// type-switch (<see cref="RefreshLivewireChannels"/> alone handles those) — a disk write should be
+    /// a deliberate action, not a side effect of just looking at the form.</summary>
+    private void OnRefreshLivewireClicked()
+    {
+        RefreshLivewireChannels();
+        LivewireDiscovery.SaveSnapshotToCache();
+    }
+
+    private void SelectLivewireChannel(DiscoveredLivewireChannel channel)
+    {
+        _draft.Source.LivewireChannelNumber = channel.Number;
+        _draft.Source.LivewireChannelName = channel.Name;
     }
 
     /// <summary>Sets the status label from an already-stored MetadataUrl (e.g. when opening the
@@ -420,6 +554,13 @@
         if (_draft.Source.Type == "stream" && string.IsNullOrWhiteSpace(_draft.Source.Url))
         {
             _error = Loc["channelEdit.errorUrlRequired"];
+            _activeTab = Tab.Input;
+            return;
+        }
+
+        if (_draft.Source.Type == "livewire" && !LivewireAddressing.IsValidChannelNumber(_draft.Source.LivewireChannelNumber))
+        {
+            _error = Loc["channelEdit.errorLivewireChannelRequired"];
             _activeTab = Tab.Input;
             return;
         }

@@ -1,8 +1,10 @@
 @using Microsoft.AspNetCore.Components
+@using Quince.Service.Audio.Livewire
 @using Quince.Service.Configuration
 @using Quince.Service.Services
 @inject AppSettingsService AppSettings
 @inject LocalizationService Loc
+@inject LivewireDiscoveryService LivewireDiscovery
 
 <div class="modal-overlay" @onclick="Close">
     <div class="modal-box" @onclick:stopPropagation="true">
@@ -13,56 +15,119 @@
             <p class="form-error">@_error</p>
         }
 
-        <div class="form-grid">
-            <label title="@Loc["appSettings.showTpIndicatorsTitle"]">@Loc["appSettings.showTpIndicatorsLabel"]</label>
-            <input type="checkbox" @bind="_draft.ShowTpIndicators" title="@Loc["appSettings.showTpIndicatorsTitle"]" />
-
-            <label>@Loc["appSettings.logLevelLabel"]</label>
-            <select @bind="_draft.LogLevel">
-                <option value="DEBUG">DEBUG</option>
-                <option value="INFO">INFO</option>
-                <option value="WARNING">WARNING</option>
-                <option value="ERROR">ERROR</option>
-            </select>
-
-            <label>@Loc["appSettings.logRetentionLabel"]</label>
-            <input type="number" @bind="_draft.LogRetentionDays" />
-
-            <label title="@Loc["appSettings.reconnectDelayTitle"]">@Loc["appSettings.reconnectDelayLabel"]</label>
-            <input type="number" min="1" @bind="_draft.ReconnectDelaySeconds"
-                   title="@Loc["appSettings.reconnectDelayTitle"]" />
-
-            <label title="@Loc["appSettings.reconnectMaxTitle"]">@Loc["appSettings.reconnectMaxLabel"]</label>
-            <input type="number" min="0" @bind="_draft.ReconnectMaxAttempts"
-                   title="@Loc["appSettings.reconnectMaxTitle"]" />
-
-            <label title="@Loc["appSettings.playoutBufferTitle"]">@Loc["appSettings.playoutBufferLabel"]</label>
-            <input type="number" min="0" step="0.5" @bind="_draft.PlayoutBufferSeconds"
-                   title="@Loc["appSettings.playoutBufferTitle"]" />
-
-            <label>@Loc["appSettings.zoneYellowLabel"]</label>
-            <input type="number" step="0.1" @bind="_draft.MeterColors.ZoneYellowDb" />
-
-            <label>@Loc["appSettings.zoneRedLabel"]</label>
-            <input type="number" step="0.1" @bind="_draft.MeterColors.ZoneRedDb" />
-
-            <label>@Loc["appSettings.colorGreenLabel"]</label>
-            <input type="color" @bind="_draft.MeterColors.ColorGreen" />
-
-            <label>@Loc["appSettings.colorYellowLabel"]</label>
-            <input type="color" @bind="_draft.MeterColors.ColorYellow" />
-
-            <label>@Loc["appSettings.colorRedLabel"]</label>
-            <input type="color" @bind="_draft.MeterColors.ColorRed" />
-
-            <label title="@Loc["appSettings.adKeywordsTitle"]">@Loc["appSettings.adKeywordsLabel"]</label>
-            <input @bind="_adKeywordsText" placeholder="@Loc["appSettings.adKeywordsPlaceholder"]"
-                   title="@Loc["appSettings.adKeywordsTitle"]" />
-
-            <label title="@Loc["appSettings.newsKeywordsTitle"]">@Loc["appSettings.newsKeywordsLabel"]</label>
-            <input @bind="_newsKeywordsText" placeholder="@Loc["appSettings.newsKeywordsPlaceholder"]"
-                   title="@Loc["appSettings.newsKeywordsTitle"]" />
+        <div class="dialog-tabs">
+            <button type="button" class="dialog-tab @(_activeTab == Tab.Logs ? "dialog-tab-active" : "")" @onclick="() => _activeTab = Tab.Logs">@Loc["appSettings.tabLogs"]</button>
+            <button type="button" class="dialog-tab @(_activeTab == Tab.Indicators ? "dialog-tab-active" : "")" @onclick="() => _activeTab = Tab.Indicators">@Loc["appSettings.tabIndicators"]</button>
+            <button type="button" class="dialog-tab @(_activeTab == Tab.Streams ? "dialog-tab-active" : "")" @onclick="() => _activeTab = Tab.Streams">@Loc["appSettings.tabStreams"]</button>
+            <button type="button" class="dialog-tab @(_activeTab == Tab.Livewire ? "dialog-tab-active" : "")" @onclick="() => _activeTab = Tab.Livewire">@Loc["appSettings.tabLivewire"]</button>
+            <button type="button" class="dialog-tab @(_activeTab == Tab.Metadata ? "dialog-tab-active" : "")" @onclick="() => _activeTab = Tab.Metadata">@Loc["appSettings.tabMetadata"]</button>
         </div>
+
+        @if (_activeTab == Tab.Logs)
+        {
+            <div class="form-grid">
+                <label>@Loc["appSettings.logLevelLabel"]</label>
+                <select @bind="_draft.LogLevel">
+                    <option value="DEBUG">DEBUG</option>
+                    <option value="INFO">INFO</option>
+                    <option value="WARNING">WARNING</option>
+                    <option value="ERROR">ERROR</option>
+                </select>
+
+                <label>@Loc["appSettings.logRetentionLabel"]</label>
+                <input type="number" @bind="_draft.LogRetentionDays" />
+            </div>
+        }
+
+        @if (_activeTab == Tab.Indicators)
+        {
+            <div class="form-grid">
+                <label title="@Loc["appSettings.showTpIndicatorsTitle"]">@Loc["appSettings.showTpIndicatorsLabel"]</label>
+                <input type="checkbox" @bind="_draft.ShowTpIndicators" title="@Loc["appSettings.showTpIndicatorsTitle"]" />
+
+                <label title="@Loc["appSettings.playoutBufferTitle"]">@Loc["appSettings.playoutBufferLabel"]</label>
+                <input type="number" min="0" step="0.5" @bind="_draft.PlayoutBufferSeconds"
+                       title="@Loc["appSettings.playoutBufferTitle"]" />
+
+                <label>@Loc["appSettings.zoneYellowLabel"]</label>
+                <input type="number" step="0.1" @bind="_draft.MeterColors.ZoneYellowDb" />
+
+                <label>@Loc["appSettings.zoneRedLabel"]</label>
+                <input type="number" step="0.1" @bind="_draft.MeterColors.ZoneRedDb" />
+
+                <label>@Loc["appSettings.colorGreenLabel"]</label>
+                <input type="color" @bind="_draft.MeterColors.ColorGreen" />
+
+                <label>@Loc["appSettings.colorYellowLabel"]</label>
+                <input type="color" @bind="_draft.MeterColors.ColorYellow" />
+
+                <label>@Loc["appSettings.colorRedLabel"]</label>
+                <input type="color" @bind="_draft.MeterColors.ColorRed" />
+            </div>
+        }
+
+        @if (_activeTab == Tab.Streams)
+        {
+            <div class="form-grid">
+                <label title="@Loc["appSettings.reconnectDelayTitle"]">@Loc["appSettings.reconnectDelayLabel"]</label>
+                <input type="number" min="1" @bind="_draft.ReconnectDelaySeconds"
+                       title="@Loc["appSettings.reconnectDelayTitle"]" />
+
+                <label title="@Loc["appSettings.reconnectMaxTitle"]">@Loc["appSettings.reconnectMaxLabel"]</label>
+                <input type="number" min="0" @bind="_draft.ReconnectMaxAttempts"
+                       title="@Loc["appSettings.reconnectMaxTitle"]" />
+            </div>
+        }
+
+        @if (_activeTab == Tab.Livewire)
+        {
+            <div class="form-grid">
+                <label title="@Loc["appSettings.livewireNicTitle"]">@Loc["appSettings.livewireNicLabel"]</label>
+                <select value="@_draft.LivewireNic" @onchange="OnLivewireNicSelected" title="@Loc["appSettings.livewireNicTitle"]">
+                    <option value="">@Loc["appSettings.livewireNicNone"]</option>
+                    @foreach (var n in _nics)
+                    {
+                        <option value="@n.Id">@n.Name (@n.IPv4Address)@(n.IsUp ? "" : Loc["channelEdit.deviceDisabledSuffix"])</option>
+                    }
+                    @if (!string.IsNullOrEmpty(_draft.LivewireNic) && !_nics.Any(n => n.Id == _draft.LivewireNic))
+                    {
+                        <option value="@_draft.LivewireNic">@Loc.T("channelEdit.deviceCurrentUnknown", _draft.LivewireNic)</option>
+                    }
+                </select>
+
+                <label></label>
+                <div class="button-row">
+                    <button type="button" class="btn btn-small" @onclick="RefreshNics" title="@Loc["channelEdit.refreshDevicesTitle"]">@Loc["common.refresh"]</button>
+                    <button type="button" class="btn @(IsLivewireConnected ? "btn-stop" : "btn-start")" @onclick="ToggleLivewireConnection"
+                            disabled="@(!CanToggleLivewireConnection)" title="@Loc["appSettings.livewireConnectTitle"]">
+                        @(IsLivewireConnected ? Loc["appSettings.livewireDisconnect"] : Loc["appSettings.livewireConnect"])
+                    </button>
+                </div>
+                @if (_nicListError is not null)
+                {
+                    <label></label>
+                    <div class="form-error">@_nicListError</div>
+                }
+                <label></label>
+                <div class="form-hint-neutral">@Loc["appSettings.livewireNicHint"]</div>
+
+                <label></label>
+                <div class="@LivewireStatusFormatter.CssClass(_livewireStatus)">@LivewireStatusFormatter.Text(_livewireStatus, Loc)</div>
+            </div>
+        }
+
+        @if (_activeTab == Tab.Metadata)
+        {
+            <div class="form-grid">
+                <label title="@Loc["appSettings.adKeywordsTitle"]">@Loc["appSettings.adKeywordsLabel"]</label>
+                <input @bind="_adKeywordsText" placeholder="@Loc["appSettings.adKeywordsPlaceholder"]"
+                       title="@Loc["appSettings.adKeywordsTitle"]" />
+
+                <label title="@Loc["appSettings.newsKeywordsTitle"]">@Loc["appSettings.newsKeywordsLabel"]</label>
+                <input @bind="_newsKeywordsText" placeholder="@Loc["appSettings.newsKeywordsPlaceholder"]"
+                       title="@Loc["appSettings.newsKeywordsTitle"]" />
+            </div>
+        }
 
         <div class="form-actions">
             <button class="btn btn-small" @onclick="Close">@Loc["common.cancel"]</button>
@@ -74,14 +139,29 @@
 @code {
     [Parameter] public EventCallback OnClose { get; set; }
 
+    private enum Tab { Logs, Indicators, Streams, Livewire, Metadata }
+
+    private Tab _activeTab = Tab.Logs;
+
     private AppConfig _draft = new();
     private string _adKeywordsText = "";
     private string _newsKeywordsText = "";
     private string? _error;
+    private List<NetworkInterfaceEnumerator.NicInfo> _nics = new();
+    private string? _nicListError;
+    private LivewireDiscoveryStatus _livewireStatus = new(LivewireDiscoveryState.Disabled, null, null, null);
+
+    private bool IsLivewireConnected => _livewireStatus.State == LivewireDiscoveryState.Listening;
+
+    /// <summary>The toggle only makes sense to click when there's either already a live socket to
+    /// close, or a NIC currently picked in the (unsaved) dropdown to open one on — an empty selection
+    /// with nothing connected has nothing for "Подключить" to act on.</summary>
+    private bool CanToggleLivewireConnection => IsLivewireConnected || !string.IsNullOrEmpty(_draft.LivewireNic);
 
     protected override void OnInitialized()
     {
         var current = AppSettings.Current;
+        _livewireStatus = LivewireDiscovery.GetStatus();
         _draft = new AppConfig
         {
             LogLevel = current.LogLevel,
@@ -90,6 +170,7 @@
             ReconnectMaxAttempts = current.ReconnectMaxAttempts,
             PlayoutBufferSeconds = current.PlayoutBufferSeconds,
             ShowTpIndicators = current.ShowTpIndicators,
+            LivewireNic = current.LivewireNic,
             MeterColors = new MeterColorsConfig
             {
                 ZoneYellowDb = current.MeterColors.ZoneYellowDb,
@@ -102,6 +183,42 @@
         };
         _adKeywordsText = string.Join(", ", current.AdKeywords);
         _newsKeywordsText = string.Join(", ", current.NewsKeywords);
+        RefreshNics();
+    }
+
+    private void RefreshNics()
+    {
+        try
+        {
+            _nics = NetworkInterfaceEnumerator.EnumerateNics();
+            _nicListError = null;
+        }
+        catch (Exception ex)
+        {
+            _nics = new();
+            _nicListError = Loc.T("appSettings.errorNicListGeneric", ex.Message);
+        }
+    }
+
+    private void OnLivewireNicSelected(ChangeEventArgs e)
+    {
+        _draft.LivewireNic = e.Value?.ToString() ?? "";
+    }
+
+    /// <summary>Opens/closes the Advertisement socket right now, against whatever NIC is currently
+    /// picked in the dropdown above — independent of "Сохранить": this lets the operator try a
+    /// different interface live before committing to it, and doesn't require an app restart the way
+    /// changing <c>livewire_nic</c> used to (see <see cref="LivewireDiscoveryService"/> class doc).
+    /// Disconnecting doesn't touch the saved setting either — the next app start still auto-connects
+    /// using whatever's in <c>settings.yaml</c>, regardless of this toggle.</summary>
+    private async Task ToggleLivewireConnection()
+    {
+        if (IsLivewireConnected)
+            await LivewireDiscovery.DisconnectAsync();
+        else
+            await LivewireDiscovery.ConnectAsync(_draft.LivewireNic);
+
+        _livewireStatus = LivewireDiscovery.GetStatus();
     }
 
     private void Save()

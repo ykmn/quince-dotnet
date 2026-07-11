@@ -99,4 +99,50 @@ public class YamlConfigLoaderTests
             Directory.Delete(dir, recursive: true);
         }
     }
+
+    [Fact]
+    public void SaveLivewireCache_ThenLoad_RoundTrips()
+    {
+        var dir = CreateTempConfigDir();
+        try
+        {
+            var loader = new YamlConfigLoader();
+            var cache = new LivewireCacheFile
+            {
+                Channels =
+                {
+                    new LivewireCacheEntry { Number = 1, Name = "Novoe Expres", DeviceName = "lwwd", DeviceIp = "172.22.0.49", LastSeen = 1_700_000_000 },
+                    new LivewireCacheEntry { Number = 10, Name = "", DeviceName = "", DeviceIp = "", LastSeen = 1_700_000_001 },
+                },
+            };
+
+            loader.SaveLivewireCache(dir, cache);
+            var loaded = loader.LoadLivewireCache(dir);
+
+            Assert.Equal(2, loaded.Channels.Count);
+            Assert.Contains(loaded.Channels, c => c.Number == 1 && c.Name == "Novoe Expres" && c.DeviceName == "lwwd" && c.DeviceIp == "172.22.0.49");
+            Assert.Contains(loaded.Channels, c => c.Number == 10 && c.Name == "" && c.DeviceName == "" && c.DeviceIp == "");
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void LoadLivewireCache_MissingFile_ReturnsEmpty()
+    {
+        var dir = CreateTempConfigDir();
+        try
+        {
+            var loader = new YamlConfigLoader();
+            var loaded = loader.LoadLivewireCache(dir);
+
+            Assert.Empty(loaded.Channels);
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
 }

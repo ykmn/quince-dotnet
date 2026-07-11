@@ -38,7 +38,7 @@ public class AudioEngineManager : IHostedService
         _channelManager.ChannelRemoved += OnChannelRemoved;
     }
 
-    private static bool IsEligible(Configuration.ChannelConfig config) => config.Source.Type is "stream" or "soundcard";
+    private static bool IsEligible(Configuration.ChannelConfig config) => config.Source.Type is "stream" or "soundcard" or "livewire";
 
     public Task StartAsync(CancellationToken cancellationToken)
     {
@@ -159,7 +159,8 @@ public class AudioEngineManager : IHostedService
                 () => _appSettings.Current.ReconnectMaxAttempts,
                 () => _appSettings.Current.NewsKeywords,
                 text => PushMetadata(channelName, text),
-                () => _appSettings.Current.PlayoutBufferSeconds);
+                () => _appSettings.Current.PlayoutBufferSeconds,
+                () => _appSettings.Current.LivewireNic);
 
             _engines[channelName] = engine;
             try
