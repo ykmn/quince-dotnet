@@ -99,6 +99,13 @@ public class AudioEngineManager : IHostedService
         lock (_lock) { if (_engines.TryGetValue(channelName, out var engine)) engine.Unsubscribe(consumerId); }
     }
 
+    /// <summary>The running channel's actual capture sample rate (see <see cref="ChannelEngine.SampleRate"/>),
+    /// or null if the channel isn't currently running.</summary>
+    public int? GetSampleRate(string channelName)
+    {
+        lock (_lock) { return _engines.TryGetValue(channelName, out var engine) ? engine.SampleRate : null; }
+    }
+
     /// <returns>(started, eligible) — eligible counts channels whose source type supports recording, whether or not they were already running.</returns>
     public (int Started, int Eligible) StartAll()
     {

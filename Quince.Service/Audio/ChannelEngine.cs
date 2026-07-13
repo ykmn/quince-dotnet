@@ -78,6 +78,13 @@ public sealed class ChannelEngine
     /// Null if the channel isn't currently running.</summary>
     public System.Threading.Channels.ChannelReader<AudioChunk>? Subscribe(string consumerId) => _capture?.Subscribe(consumerId);
 
+    /// <summary>The running capture backend's actual sample rate (44100 for stream/soundcard
+    /// sources, 48000 for Livewire — see <see cref="Audio.LivewireCapture.SampleRate"/>). Null if the
+    /// channel isn't currently running. Consumers of raw audio via <see cref="Subscribe"/> (e.g.
+    /// <see cref="Services.AudioStreamEndpoint"/>) must use this rather than assuming a fixed rate,
+    /// or ffmpeg will decode the samples at the wrong speed and shift pitch.</summary>
+    public int? SampleRate => _capture?.SampleRate;
+
     public void Unsubscribe(string consumerId) => _capture?.Unsubscribe(consumerId);
 
     /// <param name="suppressRecording">When true, skip creating the <see cref="AudioWriter"/> even

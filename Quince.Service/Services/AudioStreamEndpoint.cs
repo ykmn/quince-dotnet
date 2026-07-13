@@ -18,7 +18,7 @@ namespace Quince.Service.Services;
 /// </summary>
 public static class AudioStreamEndpoint
 {
-    private const int SampleRate = 44100;
+    private const int FallbackSampleRate = 44100;
     private const int Channels = 2;
 
     public static async Task StreamAsync(string channelName, HttpContext ctx, AudioEngineManager engineManager, ILogger<AudioEngineManager> log)
@@ -31,7 +31,13 @@ public static class AudioStreamEndpoint
             return;
         }
 
-        var buffer = new PlayoutBuffer(reader, SampleRate, log, channelName, engineManager.PlayoutBufferSeconds);
+        // Must match the channel's actual capture rate (44100 for stream/soundcard, 48000 for
+        // Livewire — LivewireCapture.SampleRate) rather than assuming a fixed rate: telling ffmpeg
+        // the raw f32le bytes below are a different rate than they actually are doesn't resample
+        // them, it just plays them at the wrong speed, audibly shifting pitch.
+        var sampleRate = engineManager.GetSampleRate(channelName) ?? FallbackSampleRate;
+
+        var buffer = new PlayoutBuffer(reader, sampleRate, log, channelName, engineManager.PlayoutBufferSeconds);
         buffer.Start();
 
         ctx.Response.ContentType = "audio/mpeg";
@@ -47,7 +53,7 @@ public static class AudioStreamEndpoint
         };
         foreach (var a in new[]
                  {
-                     "-f", "f32le", "-ar", SampleRate.ToString(), "-ac", Channels.ToString(), "-i", "pipe:0",
+                     "-f", "f32le", "-ar", sampleRate.ToString(), "-ac", Channels.ToString(), "-i", "pipe:0",
                      "-f", "mp3", "-b:a", "128k", "pipe:1",
                  })
             psi.ArgumentList.Add(a);
