@@ -18,8 +18,10 @@ public sealed class ChannelEngine
     private readonly Func<int> _getReconnectMaxAttempts;
     private readonly Func<double> _getPlayoutBufferSeconds;
     private readonly Func<string> _getLivewireNic;
+    private readonly HlsSegmentDurationService? _hlsSegmentDurationService;
 
     private volatile string? _metadataText;
+    private double? _resolvedPlayoutBufferSeconds;
 
     private ChannelConfig _config;
     private IAudioCapture? _capture;
@@ -45,7 +47,8 @@ public sealed class ChannelEngine
         Func<IReadOnlyList<string>>? getNewsKeywords = null,
         Action<string>? onMetadataUpdate = null,
         Func<double>? getPlayoutBufferSeconds = null,
-        Func<string>? getLivewireNic = null)
+        Func<string>? getLivewireNic = null,
+        HlsSegmentDurationService? hlsSegmentDurationService = null)
     {
         _config = config;
         _ffmpegPath = ffmpegPath;
@@ -61,6 +64,7 @@ public sealed class ChannelEngine
         _onMetadataUpdate = onMetadataUpdate;
         _getPlayoutBufferSeconds = getPlayoutBufferSeconds ?? (() => PlayoutBuffer.DefaultTargetDelaySeconds);
         _getLivewireNic = getLivewireNic ?? (() => "");
+        _hlsSegmentDurationService = hlsSegmentDurationService;
     }
 
     public EngineStatus Status
@@ -84,6 +88,13 @@ public sealed class ChannelEngine
     /// <see cref="Services.AudioStreamEndpoint"/>) must use this rather than assuming a fixed rate,
     /// or ffmpeg will decode the samples at the wrong speed and shift pitch.</summary>
     public int? SampleRate => _capture?.SampleRate;
+
+    /// <summary>The playout-buffer delay actually resolved for this run's meter (source-aware: a
+    /// small fixed delay for continuous sources — soundcard/Livewire/non-HLS streams — or, for HLS,
+    /// that channel's own measured segment duration via <see cref="HlsSegmentDurationService"/>, see
+    /// <see cref="Start"/>). Null if the channel isn't currently running. <see cref="Services.AudioStreamEndpoint"/>
+    /// uses this so the browser listen-in stream stays paced identically to the on-screen meter.</summary>
+    public double? PlayoutBufferSeconds => _resolvedPlayoutBufferSeconds;
 
     public void Unsubscribe(string consumerId) => _capture?.Unsubscribe(consumerId);
 
@@ -110,12 +121,32 @@ public sealed class ChannelEngine
                 _loggerFactory.CreateLogger("StreamCapture"), OnReconnectExhausted, _config.Name),
         };
 
-        // Wrapped in a PlayoutBuffer (docs/HISTORY.md #61) so the on-screen meter/goniometer lag
-        // real time by a fixed ~12s instead of visibly freezing/snapping on every producer-side gap
-        // (e.g. HLS's periodic wait for the next live segment). Recording (below) and the silence
-        // detector deliberately stay on the raw, unbuffered feed.
+        // Wrapped in a PlayoutBuffer (docs/HISTORY.md #61/#126) so the on-screen meter/goniometer lag
+        // real time by a fixed delay instead of visibly freezing/snapping on every producer-side gap
+        // (e.g. HLS's periodic wait for the next live segment) — source-aware since #126: HLS is the
+        // only source ever observed producing that periodic gap, so only HLS pays for protection
+        // against it, sized to THIS channel's own measured segment duration once known (falling back
+        // to the old proven-safe flat constant until a measurement succeeds); every other source gets
+        // a small fixed delay just for ordinary jitter. Recording (below) and the silence detector
+        // deliberately stay on the raw, unbuffered feed.
+        var isHls = _config.Source.Type != "soundcard" && _config.Source.Type != "livewire"
+                    && _config.Source.StreamType == "hls";
+        double delaySeconds;
+        if (isHls)
+        {
+            delaySeconds = _hlsSegmentDurationService?.TryGetCachedDelaySeconds(_config.Source.Url)
+                           ?? PlayoutBuffer.DefaultTargetDelaySeconds;
+            _hlsSegmentDurationService?.RequestRefresh(_config.Source.Url, _config.Source.AllowInvalidSsl,
+                _config.Source.HlsBitrateIndex, _config.Name);
+        }
+        else
+        {
+            delaySeconds = _getPlayoutBufferSeconds();
+        }
+        _resolvedPlayoutBufferSeconds = delaySeconds;
+
         var meterReader = _capture.Subscribe("meter");
-        _meterBuffer = new PlayoutBuffer(meterReader, _capture.SampleRate, _loggerFactory.CreateLogger("PlayoutBuffer"), _config.Name, _getPlayoutBufferSeconds());
+        _meterBuffer = new PlayoutBuffer(meterReader, _capture.SampleRate, _loggerFactory.CreateLogger("PlayoutBuffer"), _config.Name, delaySeconds);
 
         if (_config.RecordAudio && !suppressRecording)
         {
@@ -154,6 +185,7 @@ public sealed class ChannelEngine
             _meterBuffer = null;
             _meter = null;
             _silence = null;
+            _resolvedPlayoutBufferSeconds = null;
             throw;
         }
 
@@ -198,6 +230,7 @@ public sealed class ChannelEngine
         _meterBuffer?.Stop(); _meterBuffer = null;
         _writer?.Stop(); _writer = null;
         _capture?.Stop(); _capture = null;
+        _resolvedPlayoutBufferSeconds = null;
 
         _started = false;
         EngineStatus newStatus;
@@ -294,7 +327,6 @@ public sealed class ChannelEngine
             || old.Source.DeviceIndex != newConfig.Source.DeviceIndex
             || old.Source.DeviceUid != newConfig.Source.DeviceUid
             || old.Source.LivewireChannelNumber != newConfig.Source.LivewireChannelNumber
-            || old.Source.LivewireStereo != newConfig.Source.LivewireStereo
             || old.OutputFormat.FileFormat != newConfig.OutputFormat.FileFormat
             || old.OutputFormat.Mode != newConfig.OutputFormat.Mode
             || old.OutputFormat.SampleRate != newConfig.OutputFormat.SampleRate

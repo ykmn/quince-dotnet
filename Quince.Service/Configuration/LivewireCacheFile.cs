@@ -18,7 +18,11 @@ public class LivewireCacheEntry
     public string DeviceName { get; set; } = "";
     public string DeviceIp { get; set; } = "";
 
-    /// <summary>Unix seconds — when this entry was last confirmed by Advertisement/LWRP traffic, not
-    /// when the cache file itself was written.</summary>
-    public long LastSeen { get; set; }
+    /// <summary>Local time, formatted <c>yyyy-MM-dd HH:mm:ss</c> (same convention as the app's own log
+    /// lines and metadata CSV — see <c>FileLoggerProvider</c>/<c>MetadataWriter</c>) — when this entry
+    /// was last confirmed by Advertisement/LWRP traffic, not when the cache file itself was written.
+    /// Human-readable since docs/HISTORY.md #130 (previously Unix seconds); <see cref="Audio.Livewire.LivewireDiscoveryService"/>'s
+    /// loader still accepts the old numeric format too, so upgrading doesn't lose timestamps already on
+    /// disk.</summary>
+    public string LastSeen { get; set; } = "";
 }

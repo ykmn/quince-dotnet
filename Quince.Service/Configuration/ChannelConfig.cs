@@ -39,15 +39,6 @@ public class SourceConfig
     // the same physical AoIP network by definition.
     public int LivewireChannelNumber { get; set; } = 0;
     public string LivewireChannelName { get; set; } = "";
-
-    /// <summary>Whether the Livewire channel's native RTP payload is stereo (2 channels) or mono (1).
-    /// Not knowable from the channel number alone — a wrong guess here misparses the RTP payload
-    /// (e.g. a real mono stream declared as stereo splits consecutive real samples into fake L/R
-    /// pairs) and the audio comes out pitch-shifted/sped-or-slowed rather than merely quieter or
-    /// noisier, which is otherwise a hard symptom to place. Defaults to stereo (the more common case
-    /// for a "standard" Livewire source) — switch this per-channel if the recorded/monitored pitch
-    /// sounds wrong.</summary>
-    public bool LivewireStereo { get; set; } = true;
 }
 
 public class InputFormatConfig

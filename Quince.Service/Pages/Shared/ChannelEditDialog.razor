@@ -169,14 +169,6 @@
                     <label></label>
                     <div class="@DiscoveryStatusClass">@DiscoveryStatusText</div>
 
-                    <label title="@Loc["channelEdit.livewireStereoTitle"]">@Loc["channelEdit.livewireStereoLabel"]</label>
-                    <select @bind="_draft.Source.LivewireStereo" title="@Loc["channelEdit.livewireStereoTitle"]">
-                        <option value="true">@Loc["channelEdit.channelsStereo"]</option>
-                        <option value="false">@Loc["channelEdit.channelsMono"]</option>
-                    </select>
-                    <label></label>
-                    <div class="form-hint-neutral">@Loc["channelEdit.livewireStereoHint"]</div>
-
                     <label title="@Loc["channelEdit.livewireChannelNumberTitle"]">@Loc["channelEdit.livewireChannelNumberLabel"]</label>
                     <input type="number" @bind="_draft.Source.LivewireChannelNumber" title="@Loc["channelEdit.livewireChannelNumberTitle"]" />
 

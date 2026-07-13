@@ -20,6 +20,18 @@ namespace Quince.Service.Audio;
 /// latency equal to the buffered depth: the wrapped consumer always lags the real feed by that much.
 /// If a real outage lasts longer than the buffered depth, the queue simply runs dry and this behaves
 /// like the unbuffered feed again (no exception, no special handling — degrades gracefully).
+///
+/// <c>TargetDelaySeconds</c> itself is source-aware since docs/HISTORY.md #126: the periodic gap
+/// this class exists to hide has only ever been observed on HLS sources, so
+/// <see cref="ChannelEngine.Start"/> only sizes it generously for HLS channels (from that channel's
+/// own measured playlist segment duration via <see cref="HlsSegmentDurationService"/>) and uses a
+/// small fixed delay for everything else (Icecast/soundcard/Livewire). This class itself is
+/// unchanged — <c>_targetDelaySeconds</c> is deliberately still constructor-only/immutable, not
+/// resizable on a live instance: safely growing/shrinking an already-primed buffer mid-flight
+/// (without releasing stale data early or deadlocking against an already-exceeded threshold) is
+/// meaningfully riskier than the alternative of simply re-resolving the delay the next time the
+/// owning channel restarts (which <see cref="ChannelEngine.PipelineChanged"/> already does on any
+/// relevant config change).
 /// </summary>
 public sealed class PlayoutBuffer
 {

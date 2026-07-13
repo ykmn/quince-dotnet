@@ -111,8 +111,8 @@ public class YamlConfigLoaderTests
             {
                 Channels =
                 {
-                    new LivewireCacheEntry { Number = 1, Name = "Novoe Expres", DeviceName = "lwwd", DeviceIp = "172.22.0.49", LastSeen = 1_700_000_000 },
-                    new LivewireCacheEntry { Number = 10, Name = "", DeviceName = "", DeviceIp = "", LastSeen = 1_700_000_001 },
+                    new LivewireCacheEntry { Number = 1, Name = "Novoe Expres", DeviceName = "lwwd", DeviceIp = "172.22.0.49", LastSeen = "2026-07-13 10:46:01" },
+                    new LivewireCacheEntry { Number = 10, Name = "", DeviceName = "", DeviceIp = "", LastSeen = "2026-07-13 10:46:02" },
                 },
             };
 

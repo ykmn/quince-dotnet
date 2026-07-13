@@ -65,4 +65,35 @@ public class LivewireDiscoveryMergeTests
 
         Assert.Equal(DeviceIp, merged.DeviceIp); // "lite" bursts don't repeat INIP either — don't erase it
     }
+
+    // ParseLastSeen (docs/HISTORY.md #130): config/livewire.yaml's last_seen switched from Unix
+    // seconds to a human-readable local timestamp — must keep reading the old format too, so upgrading
+    // doesn't silently discard every timestamp already saved on disk.
+    [Fact]
+    public void ParseLastSeen_HumanReadableFormat_ParsesAsLocalTime()
+    {
+        var expected = new DateTimeOffset(new DateTime(2026, 7, 13, 10, 46, 1, DateTimeKind.Local).ToUniversalTime());
+
+        var result = LivewireDiscoveryService.ParseLastSeen("2026-07-13 10:46:01");
+
+        Assert.Equal(expected, result);
+    }
+
+    [Fact]
+    public void ParseLastSeen_LegacyUnixSeconds_StillParses()
+    {
+        var result = LivewireDiscoveryService.ParseLastSeen("1783756427");
+
+        Assert.Equal(DateTimeOffset.FromUnixTimeSeconds(1783756427), result);
+    }
+
+    [Fact]
+    public void ParseLastSeen_Unparsable_FallsBackToNowRatherThanThrowing()
+    {
+        var before = DateTimeOffset.UtcNow;
+        var result = LivewireDiscoveryService.ParseLastSeen("not a date");
+        var after = DateTimeOffset.UtcNow;
+
+        Assert.InRange(result, before, after);
+    }
 }
