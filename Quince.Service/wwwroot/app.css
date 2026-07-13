@@ -61,28 +61,33 @@
     --quince-yellow-text: #8A6D00;
 }
 
+/* "Эспрессо" — warm brown-black, chosen to sit closer to the quince-gold brand accent than the
+   previous cool slate-blue dark theme. text-muted/text-faint were tuned up from a first pass
+   (#b3a08e/#8f7c6b) after the faint tone measured only 3.9:1 against --surface — below WCAG AA
+   for the copy it's actually used on (channel-row2/row3, meter values, indicator labels), not
+   just decoration. Current values: text-muted ~6.8:1, text-faint ~4.65:1 against --surface. */
 [data-theme="dark"] {
-    --page-bg: #323c4e;
-    --surface: #3b4656;
-    --surface-alt: #424c60;
-    --surface-hover: #4a5469;
-    --border: #333a47;
-    --border-strong: #3d4553;
-    --border-card: #4b5563;
-    --text: #ffffff;
-    --text-secondary: #dcdfe5;
-    --text-muted: #b6bbc5;
-    --text-faint: #9399a5;
-    --track-bg: #3d4553;
-    --overlay-bg: rgba(0, 0, 0, 0.55);
-    --shadow-color: rgba(0, 0, 0, 0.5);
-    --code-bg: #262c37;
-    --link: #ffd966;
+    --page-bg: #2a2320;
+    --surface: #342b26;
+    --surface-alt: #3c3129;
+    --surface-hover: #453930;
+    --border: #453930;
+    --border-strong: #56473b;
+    --border-card: #645345;
+    --text: #f3ebe1;
+    --text-secondary: #d9c9ba;
+    --text-muted: #c7b29d;
+    --text-faint: #a8927c;
+    --track-bg: #4a3d33;
+    --overlay-bg: rgba(20, 12, 6, 0.55);
+    --shadow-color: rgba(20, 10, 0, 0.55);
+    --code-bg: #201a15;
+    --link: #ffcf66;
 
-    --quince-yellow-bg: #332900;
-    --quince-yellow-border: #5c4b00;
-    --quince-yellow-hover: rgba(255, 215, 0, 0.15);
-    --quince-yellow-text: #ffd966;
+    --quince-yellow-bg: #3d2f0f;
+    --quince-yellow-border: #6b5417;
+    --quince-yellow-hover: rgba(255, 215, 0, 0.16);
+    --quince-yellow-text: #ffd166;
 }
 
 html, body {
