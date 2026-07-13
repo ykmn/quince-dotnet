@@ -237,8 +237,18 @@ if ($PSCmdlet.ShouldProcess("$resolvedSourcePath -> $resolvedInstallPath", 'Ск
     Write-Host "Копирую файлы из $resolvedSourcePath в $resolvedInstallPath..."
     & robocopy.exe @robocopyArgs | Write-Verbose
     # robocopy: коды 0-7 — успех/информационные, 8+ — ошибка.
-    if ($LASTEXITCODE -ge 8) {
-        throw "robocopy завершился с ошибкой (код $LASTEXITCODE)."
+    switch ($LASTEXITCODE) {
+        0 { Write-Host "Файлы не изменились (код robocopy: $LASTEXITCODE)." }
+        1 { Write-Host "Все файлы успешно скопированы (код robocopy: $LASTEXITCODE)." }
+        2 { Write-Host "В целевом кателоге есть несколько файлов, которые отсутствуют в исходном каталоге, файлы не скопированы (код robocopy: $LASTEXITCODE)." }
+        3 { Write-Host "Некоторые файлы скопированы, были представлены дополнительные файлы (код robocopy: $LASTEXITCODE)."}
+        5 { Write-Host "Некоторые файлы скопированы, некоторые файлы были несогласованы. Сбоев нет (код robocopy: $LASTEXITCODE)." }
+        6 { Write-Host "Существуют дополнительные и несогласованные файлы. Файлы уже существуют в целевом каталоге (код robocopy: $LASTEXITCODE)." }
+        7 { Write-Host "Файлы скопированы (код robocopy: $LASTEXITCODE)." }
+        default { if ($LASTEXITCODE -ge 8) {
+                throw "robocopy завершился с ошибкой (код $LASTEXITCODE)."   
+            }
+        }
     }
     Write-Host "Копирование завершено (код robocopy: $LASTEXITCODE)."
 }

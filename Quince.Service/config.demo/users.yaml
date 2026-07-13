@@ -13,5 +13,5 @@
 
 users:
   - username: admin
-    password_hash: "$2a$11$yAk6M3qMD4yM4XyYhQdV4etUlPJJYBar.RItT5GuerJVbn.QKAXNy"
+    password_hash: "$2a$11$s01rRaLKY4iB2f0a4Ow87.9yt7QsjQzUkSBruPT6i/9glRnNOPtyy"
     is_admin: true
