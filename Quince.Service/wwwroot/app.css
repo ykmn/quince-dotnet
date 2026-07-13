@@ -914,6 +914,7 @@ body {
 .livewire-channel-table td {
     padding: 5px 8px;
     text-align: left;
+    color: var(--text);
     border-bottom: 1px solid var(--border);
     overflow: hidden;
     text-overflow: ellipsis;
