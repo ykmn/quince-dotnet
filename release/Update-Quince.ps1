@@ -23,14 +23,17 @@
     -InstallPath сетевой (UNC), служба проверяется/останавливается/запускается
     НА ТОМ УДАЛЁННОМ КОМПЬЮТЕРЕ (имя берётся из самого пути, \\<компьютер>\...),
     а не на локальном, где выполняется сам скрипт — иначе обновление скопировало
-    бы новые файлы поверх ещё работающей на удалённой машине службы. Проверка
-    статуса идёт через Get-Service -ComputerName (тот же удалённый вызов, что
-    использует sc.exe), а сам стоп/старт — через sc.exe \\<компьютер> stop/start,
-    поскольку у Stop-Service/Start-Service нет параметра -ComputerName. Для этого
-    на удалённой машине должны быть разрешены удалённое управление службами
-    (Remote Registry/RPC, брандмауэр «Удалённое управление службами») и валидные
-    права администратора текущего пользователя НА НЕЙ — это не проверяется
-    заранее, ошибка будет вида "Отказано в доступе" от sc.exe/Get-Service.
+    бы новые файлы поверх ещё работающей на удалённой машине службы. И проверка
+    статуса, и сам стоп/старт идут через CIM/WMI (Get-CimInstance/Invoke-CimMethod
+    на классе Win32_Service, удалённо — по DCOM, без WinRM), а не Get-Service
+    -ComputerName/sc.exe: у Get-Service параметр -ComputerName вообще отсутствует
+    в PowerShell 7/Core (только в Windows PowerShell 5.1) — а этот скрипт может
+    запускаться в любой из двух версий, — а текстовый вывод sc.exe query зависит
+    от локали Windows на удалённой машине. Для удалённого сценария на целевой
+    машине должны быть разрешены удалённое администрирование WMI (брандмауэр
+    «Windows Management Instrumentation (WMI)») и валидные права администратора
+    текущего пользователя НА НЕЙ — это не проверяется заранее, ошибка будет видна
+    как обычное исключение CIM/WMI о недоступности или отказе в доступе.
 
 .PARAMETER InstallPath
     Папка установленного приложения, которую нужно обновить (обязательный).
@@ -82,8 +85,13 @@ if (-not (Test-Path -LiteralPath $SourcePath -PathType Container)) {
     throw "Папка новой версии не найдена: $SourcePath"
 }
 
-$resolvedInstallPath = (Resolve-Path -LiteralPath $InstallPath).Path
-$resolvedSourcePath = (Resolve-Path -LiteralPath $SourcePath).Path
+# .ProviderPath, not .Path: for a UNC path, PathInfo.Path comes back provider-qualified
+# ("Microsoft.PowerShell.Core\FileSystem::\\server\share\...") rather than the plain path — confirmed
+# live (docs/HISTORY.md #133). That breaks Get-UncComputerName's regex (doesn't start with "\\" any
+# more) and would confuse robocopy/sc.exe too; .ProviderPath is the plain OS path in both the local
+# and UNC case.
+$resolvedInstallPath = (Resolve-Path -LiteralPath $InstallPath).ProviderPath
+$resolvedSourcePath = (Resolve-Path -LiteralPath $SourcePath).ProviderPath
 
 # Повышение прав, если требуется (управление службами и запись в папку установки).
 $currentPrincipal = [Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()
@@ -137,16 +145,51 @@ function Get-UncComputerName {
     return $null
 }
 
+function Get-ServiceStatusInfo {
+    # Normalizes local (Get-Service) and remote (Get-CimInstance Win32_Service) queries to the same
+    # shape ([pscustomobject] with a .Status string, plus .Cim for the remote case's own instance
+    # object) so the rest of the script doesn't need to branch on which one it's looking at. Returns
+    # $null if the service isn't found.
+    #
+    # Deliberately NOT Get-Service -ComputerName for the remote case: that parameter was DROPPED in
+    # PowerShell 7/Core (confirmed live — "A parameter cannot be found that matches parameter name
+    # 'ComputerName'", docs/HISTORY.md #133), so relying on it would silently misbehave depending on
+    # which PowerShell engine happens to run this script (both are supported — see the
+    # relaunch-with-whatever-host-invoked-it logic above). CIM's own remoting (DCOM by default on
+    # Windows, no WinRM needed) works the same in both editions.
+    param([string] $Name, [string] $ComputerName)
+
+    if ($ComputerName) {
+        $svc = Get-CimInstance -ClassName Win32_Service -Filter "Name='$Name'" -ComputerName $ComputerName -ErrorAction SilentlyContinue
+        if (-not $svc) { return $null }
+        return [pscustomobject]@{ Status = $svc.State; Cim = $svc }
+    }
+    $svc = Get-Service -Name $Name -ErrorAction SilentlyContinue
+    if (-not $svc) { return $null }
+    return [pscustomobject]@{ Status = $svc.Status.ToString(); Cim = $null }
+}
+
+function Invoke-RemoteServiceMethod {
+    # Win32_Service's StopService()/StartService() WMI methods — the CIM-remoting counterpart to
+    # Stop-Service/Start-Service, used because those cmdlets have no -ComputerName at all (not even in
+    # Windows PowerShell 5.1) — sc.exe \\computer stop/start was the other option, but its query output
+    # is locale-dependent text (this app's operators are Russian-locale), which is why status querying
+    # above went with CIM too, not "sc.exe query".
+    param([Microsoft.Management.Infrastructure.CimInstance] $CimService, [string] $MethodName)
+
+    $result = Invoke-CimMethod -InputObject $CimService -MethodName $MethodName
+    if ($result.ReturnValue -ne 0) {
+        throw "Win32_Service.$MethodName() вернул код ошибки $($result.ReturnValue)."
+    }
+}
+
 function Wait-ServiceStatus {
     param([string] $Name, [string] $Status, [int] $TimeoutSeconds = 30, [string] $ComputerName)
-
-    $getParams = @{ Name = $Name }
-    if ($ComputerName) { $getParams['ComputerName'] = $ComputerName }
 
     $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
     do {
         Start-Sleep -Milliseconds 500
-        $current = (Get-Service @getParams).Status
+        $current = (Get-ServiceStatusInfo -Name $Name -ComputerName $ComputerName).Status
     } while ($current -ne $Status -and (Get-Date) -lt $deadline)
 
     if ($current -ne $Status) {
@@ -160,9 +203,7 @@ function Wait-ServiceStatus {
 $remoteComputer = Get-UncComputerName -Path $resolvedInstallPath
 $serviceLocationSuffix = if ($remoteComputer) { " на \\$remoteComputer" } else { "" }
 
-$serviceQueryParams = @{ Name = $ServiceName; ErrorAction = 'SilentlyContinue' }
-if ($remoteComputer) { $serviceQueryParams['ComputerName'] = $remoteComputer }
-$service = Get-Service @serviceQueryParams
+$service = Get-ServiceStatusInfo -Name $ServiceName -ComputerName $remoteComputer
 
 if (-not $service) {
     Write-Warning "Служба '$ServiceName'$serviceLocationSuffix не найдена — копирование будет выполнено без остановки/запуска службы."
@@ -171,11 +212,7 @@ elseif ($service.Status -ne 'Stopped') {
     if ($PSCmdlet.ShouldProcess("$ServiceName$serviceLocationSuffix", 'Остановить службу')) {
         Write-Host "Останавливаю службу $ServiceName$serviceLocationSuffix..."
         if ($remoteComputer) {
-            # Stop-Service has no -ComputerName — sc.exe is the one tool here that can target a
-            # remote machine directly, same remote-management channel Get-Service -ComputerName
-            # already uses under the hood.
-            & sc.exe "\\$remoteComputer" stop $ServiceName | Write-Verbose
-            if ($LASTEXITCODE -ne 0) { throw "sc.exe stop$serviceLocationSuffix завершился с кодом $LASTEXITCODE." }
+            Invoke-RemoteServiceMethod -CimService $service.Cim -MethodName 'StopService'
         }
         else {
             Stop-Service -Name $ServiceName -Force -ErrorAction Stop
@@ -210,8 +247,7 @@ if ($service) {
     if ($PSCmdlet.ShouldProcess("$ServiceName$serviceLocationSuffix", 'Запустить службу')) {
         Write-Host "Запускаю службу $ServiceName$serviceLocationSuffix..."
         if ($remoteComputer) {
-            & sc.exe "\\$remoteComputer" start $ServiceName | Write-Verbose
-            if ($LASTEXITCODE -ne 0) { throw "sc.exe start$serviceLocationSuffix завершился с кодом $LASTEXITCODE." }
+            Invoke-RemoteServiceMethod -CimService $service.Cim -MethodName 'StartService'
         }
         else {
             Start-Service -Name $ServiceName -ErrorAction Stop
