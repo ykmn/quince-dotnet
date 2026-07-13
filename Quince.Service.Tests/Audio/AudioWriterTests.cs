@@ -46,6 +46,19 @@ public class AudioWriterTests
     }
 
     [Fact]
+    public void BuildEncodeArgs_AlwaysPassesOverwriteFlag()
+    {
+        // docs/HISTORY.md #136: without -y, ffmpeg can't prompt for overwrite on a non-interactive
+        // stdin (piped PCM here) and just exits immediately if the output path already exists —
+        // dropping several seconds of a 24/7 recording every time a same-second filename collides
+        // with a leftover file (e.g. an orphaned ffmpeg from an unclean restart).
+        var fmt = new OutputFormatConfig { FileFormat = "mp3", BitrateKbps = 96, Mode = "original" };
+        var args = AudioWriter.BuildEncodeArgs(fmt, 44100, 2, "out.mp3");
+
+        Assert.Contains("-y", args);
+    }
+
+    [Fact]
     public void BuildEncodeArgs_UnsupportedFormat_Throws()
     {
         var fmt = new OutputFormatConfig { FileFormat = "flac" };

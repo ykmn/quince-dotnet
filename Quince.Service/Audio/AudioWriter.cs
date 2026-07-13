@@ -291,6 +291,15 @@ public sealed class AudioWriter
         var args = new List<string>
         {
             "-hide_banner", "-loglevel", "error",
+            // Without this, ffmpeg can't prompt for overwrite confirmation (stdin here is the raw
+            // PCM pipe, not a terminal) and just exits immediately with "File already exists" if the
+            // output path is ever reused (e.g. an orphaned ffmpeg from a not-fully-clean previous
+            // shutdown still holding a same-second filename) — silently dropping several seconds of
+            // audio for a 24/7 recorder every time it happens (docs/HISTORY.md #136). Always overwrite
+            // instead: the filename is always freshly derived from the current timestamp, so a
+            // collision only ever means stale/incomplete data from an aborted process, never real
+            // content worth preserving over continuity.
+            "-y",
             "-f", "f32le",
             "-ar", inputSampleRate.ToString(),
             "-ac", inputChannels.ToString(),

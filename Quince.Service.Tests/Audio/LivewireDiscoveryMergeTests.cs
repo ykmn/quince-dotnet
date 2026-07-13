@@ -96,4 +96,39 @@ public class LivewireDiscoveryMergeTests
 
         Assert.InRange(result, before, after);
     }
+
+    // TryEnrichWithLwrpName (docs/HISTORY.md #135): a queried node's LWRP "known sources" table can
+    // list channel numbers it doesn't actually originate at all (LIVEWIRE.md §3) — real field data
+    // showed a PC driver node whose SRC table listed 200+ such numbers, some even carrying
+    // plausible-looking real station names left over in its own local config. LWRP must only ever fill
+    // in a missing name for a channel Advertisement already confirmed real, never invent the channel
+    // number itself.
+    [Fact]
+    public void TryEnrichWithLwrpName_ChannelNeverSeenViaAdvertisement_ReturnsNull()
+    {
+        var result = LivewireDiscoveryService.TryEnrichWithLwrpName(null, "RR-intelsat", T1);
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public void TryEnrichWithLwrpName_KnownChannelWithoutName_FillsNameFromLwrp()
+    {
+        var existing = new DiscoveredLivewireChannel(1, "", "", null, Addr, T0);
+
+        var result = LivewireDiscoveryService.TryEnrichWithLwrpName(existing, "Novoe Expres", T1);
+
+        Assert.NotNull(result);
+        Assert.Equal("Novoe Expres", result.Value.Name);
+        Assert.Equal(T1, result.Value.LastSeen);
+    }
+
+    [Fact]
+    public void TryEnrichWithLwrpName_KnownChannelAlreadyNamedByAdvertisement_DoesNotOverride()
+    {
+        var existing = new DiscoveredLivewireChannel(1, "From Advertisement", "lwwd", DeviceIp, Addr, T0);
+
+        var result = LivewireDiscoveryService.TryEnrichWithLwrpName(existing, "From LWRP", T1);
+
+        Assert.Null(result);
+    }
 }

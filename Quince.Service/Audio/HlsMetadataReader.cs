@@ -17,8 +17,10 @@ public sealed class HlsMetadataReader : IMetadataReader
 {
     private static readonly TimeSpan DiscoveryTimeout = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan PollInterval = TimeSpan.FromSeconds(5);
-    private const int DiscoveryAttempts = 3;
-    private static readonly TimeSpan DiscoveryRetryDelay = TimeSpan.FromSeconds(3);
+    // Not const/readonly so tests can shrink these instead of waiting through the real cadence.
+    internal static int DiscoveryAttempts = 3;
+    internal static TimeSpan DiscoveryRetryDelay = TimeSpan.FromSeconds(3);
+    internal static TimeSpan BackgroundResolveInterval = TimeSpan.FromMinutes(2);
 
     private static readonly string[] JsonTitleKeys = { "title", "name", "song" };
     private static readonly string[] FlatStringKeys = { "now_playing", "current", "stream_title" };
@@ -79,7 +81,7 @@ public sealed class HlsMetadataReader : IMetadataReader
     {
         using var scope = _log.BeginScope(new Dictionary<string, object> { ["Channel"] = _channelName });
 
-        if (!string.IsNullOrEmpty(_knownMetadataUrl) && await TryKnownUrlAsync(ct))
+        if (!string.IsNullOrEmpty(_knownMetadataUrl) && await TryKnownUrlWithRetriesAsync(ct))
         {
             _hasMetadata = true;
             _log.LogInformation("Метаданные HLS: JSON endpoint {Url}", _metadataUrl);
@@ -92,16 +94,8 @@ public sealed class HlsMetadataReader : IMetadataReader
         // existed — e.g. a transient DNS/network hiccup right at app startup (several channels
         // opening connections at once) was enough to mask working metadata for the whole run.
         // Retry a few times before giving up on JSON discovery.
-        for (var attempt = 1; attempt <= DiscoveryAttempts; attempt++)
-        {
-            _metadataUrl = await DiscoverMetadataUrlAsync(_playlistUrl, _allowInvalidSsl, DiscoveryTimeout);
-            if (_metadataUrl != null) break;
-            if (attempt < DiscoveryAttempts)
-            {
-                try { await Task.Delay(DiscoveryRetryDelay, ct); }
-                catch (OperationCanceledException) { return; }
-            }
-        }
+        _metadataUrl = await TryDiscoveryWithRetriesAsync(ct);
+        if (ct.IsCancellationRequested) return;
 
         if (_metadataUrl != null)
         {
@@ -119,25 +113,104 @@ public sealed class HlsMetadataReader : IMetadataReader
             // tools/ — it isn't bundled (same licensing-review status as bass.dll, see README).
             // Not an error: this is only the last-resort HLS metadata fallback.
             _log.LogInformation("ffprobe.exe не найден ({Path}) — резервный разбор ID3-тегов недоступен, метаданные не обнаружены", _ffprobePath);
-            return;
+        }
+        else
+        {
+            try
+            {
+                var result = await ProbeId3Async(ct);
+                if (result != null)
+                {
+                    _hasMetadata = true;
+                    FireIfChanged(result.Value.Artist, result.Value.Title);
+                }
+                else
+                {
+                    _log.LogInformation("Метаданные не обнаружены");
+                }
+            }
+            catch (Exception ex)
+            {
+                _log.LogWarning(ex, "Ошибка FFmpeg ID3 probe");
+            }
         }
 
-        try
+        // Don't let this reader's task die here. JSON discovery (and, if configured, the known
+        // endpoint) may simply be down right now — e.g. a reconnect storm at startup, or the
+        // metadata host being briefly unreachable — and may become reachable again later in this
+        // channel's (potentially many-hour) session. Keep periodically re-resolving in the
+        // background so the reader self-heals into full JSON polling without a manual config
+        // reload. The one-shot ID3 probe above is intentionally NOT retried here — only JSON
+        // resolution is.
+        await BackgroundResolveLoopAsync(ct);
+    }
+
+    private async Task<bool> TryKnownUrlWithRetriesAsync(CancellationToken ct)
+    {
+        for (var attempt = 1; attempt <= DiscoveryAttempts; attempt++)
         {
-            var result = await ProbeId3Async(ct);
-            if (result != null)
+            if (await TryKnownUrlAsync(ct)) return true;
+            if (attempt < DiscoveryAttempts)
             {
-                _hasMetadata = true;
-                FireIfChanged(result.Value.Artist, result.Value.Title);
-            }
-            else
-            {
-                _log.LogInformation("Метаданные не обнаружены");
+                try { await Task.Delay(DiscoveryRetryDelay, ct); }
+                catch (OperationCanceledException) { return false; }
             }
         }
-        catch (Exception ex)
+        return false;
+    }
+
+    private async Task<string?> TryDiscoveryWithRetriesAsync(CancellationToken ct)
+    {
+        for (var attempt = 1; attempt <= DiscoveryAttempts; attempt++)
         {
-            _log.LogWarning(ex, "Ошибка FFmpeg ID3 probe");
+            var url = await DiscoverMetadataUrlAsync(_playlistUrl, _allowInvalidSsl, DiscoveryTimeout);
+            if (url != null) return url;
+            if (attempt < DiscoveryAttempts)
+            {
+                try { await Task.Delay(DiscoveryRetryDelay, ct); }
+                catch (OperationCanceledException) { return null; }
+            }
+        }
+        return null;
+    }
+
+    /// <summary>Runs once known-URL retries + discovery retries + the one-shot ID3 fallback have
+    /// all failed at startup. Keeps re-attempting JSON resolution (known URL, then discovery) on a
+    /// slow cadence for the rest of the reader's life so a channel like one whose metadata host
+    /// differs from its playlist host (see <see cref="_knownMetadataUrl"/>'s doc) self-heals if the
+    /// endpoint was only transiently unreachable, instead of staying without live metadata until a
+    /// manual channel config reload recreates this reader from scratch.</summary>
+    private async Task BackgroundResolveLoopAsync(CancellationToken ct)
+    {
+        _log.LogInformation(
+            "Метаданные не обнаружены при запуске — продолжаем периодические попытки поиска JSON в фоне (каждые {Interval} мин)",
+            BackgroundResolveInterval.TotalMinutes);
+
+        while (!ct.IsCancellationRequested)
+        {
+            try { await Task.Delay(BackgroundResolveInterval, ct); }
+            catch (OperationCanceledException) { return; }
+
+            if (!string.IsNullOrEmpty(_knownMetadataUrl) && await TryKnownUrlAsync(ct))
+            {
+                _hasMetadata = true;
+                _log.LogInformation("Метаданные HLS восстановлены (фоновая попытка): JSON endpoint {Url}", _metadataUrl);
+                await JsonPollLoopAsync(ct);
+                return;
+            }
+
+            var url = await DiscoverMetadataUrlAsync(_playlistUrl, _allowInvalidSsl, DiscoveryTimeout);
+            if (url != null)
+            {
+                _metadataUrl = url;
+                _hasMetadata = true;
+                _log.LogInformation("Метаданные HLS восстановлены (фоновая попытка): JSON endpoint {Url}", _metadataUrl);
+                await JsonPollLoopAsync(ct);
+                return;
+            }
+
+            _log.LogDebug("Фоновая попытка поиска JSON метаданных снова не удалась, следующая попытка через {Interval} мин",
+                BackgroundResolveInterval.TotalMinutes);
         }
     }
 

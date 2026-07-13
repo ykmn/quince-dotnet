@@ -1,4 +1,6 @@
+using System.Net;
 using System.Text.Json;
+using Microsoft.Extensions.Logging.Abstractions;
 using Quince.Service.Audio;
 using Xunit;
 
@@ -92,5 +94,117 @@ public class HlsMetadataReaderTests
         // the UI stuck on an unhandled exception instead of a plain "not found" result).
         var result = await HlsMetadataReader.DiscoverMetadataUrlAsync("not a url", false, TimeSpan.FromSeconds(1));
         Assert.Null(result);
+    }
+
+    /// <summary>Regression test for the bug where, once the known URL check, JSON discovery, and
+    /// the one-shot ID3 fallback had all failed at startup, the reader's background task simply
+    /// completed forever — the only way to get metadata flowing again was a full channel config
+    /// reload (which recreates the reader from scratch). This starts a reader against an endpoint
+    /// that fails at startup, then flips it to succeed, and asserts the reader notices on its own
+    /// via the background re-resolution loop, without ever being restarted.</summary>
+    [Fact]
+    public async Task RunAsync_SelfHealsInBackground_AfterInitialResolutionFails()
+    {
+        var origAttempts = HlsMetadataReader.DiscoveryAttempts;
+        var origRetryDelay = HlsMetadataReader.DiscoveryRetryDelay;
+        var origBackgroundInterval = HlsMetadataReader.BackgroundResolveInterval;
+        HlsMetadataReader.DiscoveryAttempts = 1;
+        HlsMetadataReader.DiscoveryRetryDelay = TimeSpan.FromMilliseconds(1);
+        HlsMetadataReader.BackgroundResolveInterval = TimeSpan.FromMilliseconds(200);
+
+        var found = false;
+        // A raw TcpListener rather than System.Net.HttpListener: the latter is backed by
+        // http.sys on Windows and needs either admin rights or a netsh urlacl reservation for
+        // its prefix, which a unit test can't assume. Any well-formed HTTP/1.1 response over a
+        // plain socket is enough for HttpClient.
+        using var tcp = new System.Net.Sockets.TcpListener(IPAddress.Loopback, 0);
+        tcp.Start();
+        var port = ((IPEndPoint)tcp.LocalEndpoint).Port;
+        var prefix = $"http://127.0.0.1:{port}/";
+        var serverCts = new CancellationTokenSource();
+        var serverTask = Task.Run(async () =>
+        {
+            while (!serverCts.IsCancellationRequested)
+            {
+                System.Net.Sockets.TcpClient client;
+                try { client = await tcp.AcceptTcpClientAsync(serverCts.Token); }
+                catch (OperationCanceledException) { break; }
+                catch (ObjectDisposedException) { break; }
+
+                _ = Task.Run(async () =>
+                {
+                    using var c = client;
+                    using var stream = c.GetStream();
+                    var buffer = new byte[1024];
+                    // Just enough to drain the request line/headers; we don't care about the path.
+                    try { await stream.ReadAsync(buffer, serverCts.Token); }
+                    catch { return; }
+
+                    var body = Volatile.Read(ref found)
+                        ? """{"artist": "Recovered Artist", "title": "Recovered Title"}"""
+                        : "{}";
+                    var bodyBytes = System.Text.Encoding.UTF8.GetBytes(body);
+                    var header = $"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {bodyBytes.Length}\r\nConnection: close\r\n\r\n";
+                    var headerBytes = System.Text.Encoding.ASCII.GetBytes(header);
+                    try
+                    {
+                        await stream.WriteAsync(headerBytes, serverCts.Token);
+                        await stream.WriteAsync(bodyBytes, serverCts.Token);
+                    }
+                    catch { }
+                }, serverCts.Token);
+            }
+        });
+
+        try
+        {
+            MetadataEvent? received = null;
+            var reader = new HlsMetadataReader(
+                playlistUrl: prefix + "playlist.m3u8",
+                allowInvalidSsl: false,
+                onMetadata: evt => received = evt,
+                channelName: "test-channel",
+                ffprobePath: Path.Combine(Path.GetTempPath(), "no-such-ffprobe.exe"),
+                log: NullLogger.Instance,
+                knownMetadataUrl: prefix + "metadata.json");
+
+            reader.Start();
+            try
+            {
+                // At this point resolution should fail (server returns "{}", no recognizable
+                // title) and the reader must fall into the background retry loop instead of its
+                // task completing.
+                await Task.Delay(300);
+                Assert.True(reader.IsRunning, "reader task must not complete when all resolution attempts fail");
+                Assert.False(reader.HasMetadata);
+
+                Volatile.Write(ref found, true);
+
+                // HasMetadata flips true as soon as the endpoint resolves, slightly before the
+                // JsonPollLoopAsync's first fetch delivers the actual callback — wait for the
+                // callback itself, not just the flag, to avoid a race.
+                var deadline = DateTimeOffset.UtcNow.AddSeconds(10);
+                while (received == null && DateTimeOffset.UtcNow < deadline)
+                    await Task.Delay(50);
+
+                Assert.True(reader.HasMetadata, "reader should self-heal once the endpoint starts responding");
+                Assert.NotNull(received);
+                Assert.Equal("Recovered Artist", received!.Artist);
+                Assert.Equal("Recovered Title", received!.Title);
+            }
+            finally
+            {
+                reader.Stop();
+            }
+        }
+        finally
+        {
+            serverCts.Cancel();
+            tcp.Stop();
+            try { await serverTask; } catch { }
+            HlsMetadataReader.DiscoveryAttempts = origAttempts;
+            HlsMetadataReader.DiscoveryRetryDelay = origRetryDelay;
+            HlsMetadataReader.BackgroundResolveInterval = origBackgroundInterval;
+        }
     }
 }

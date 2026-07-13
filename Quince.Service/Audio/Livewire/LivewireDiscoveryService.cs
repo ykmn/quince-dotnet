@@ -47,7 +47,10 @@ public sealed record LivewireDiscoveryStatus(LivewireDiscoveryState State, strin
 /// <see cref="LivewireAdvertisementParser"/>'s doc comment), so this service also opportunistically
 /// queries each newly-seen node's LWRP server (<see cref="LwrpClient"/>) once for its "SRC" table and
 /// uses that to fill in names Advertisement didn't provide — never to overwrite a name Advertisement
-/// already gave, since that came straight from the device the channel actually belongs to.
+/// already gave, since that came straight from the device the channel actually belongs to, and never
+/// to introduce a channel NUMBER Advertisement hasn't independently confirmed is real (see
+/// <see cref="EnrichNamesViaLwrpAsync"/>/<see cref="TryEnrichWithLwrpName"/> — a node's LWRP "known
+/// sources" table can list numbers it doesn't actually originate at all, docs/HISTORY.md #135).
 ///
 /// A device doesn't necessarily repeat every field on every Advertisement burst it sends (a "lite"
 /// packet with no <c>ATRN</c>/<c>PSNM</c> can arrive for the same channel that a fuller packet named
@@ -345,21 +348,46 @@ public sealed class LivewireDiscoveryService : IHostedService
     /// exclude auto-generated default-placeholder labels for never-renamed slots (a real-world node's
     /// LWRP "known sources" table isn't scoped to what it physically originates — see LIVEWIRE.md §3 —
     /// and can list hundreds of unconfigured slots) — this method doesn't need to, and shouldn't,
-    /// re-apply any name-quality filtering of its own.</summary>
+    /// re-apply any name-quality filtering of its own.
+    ///
+    /// Only ever FILLS IN a name for a channel number <see cref="_channels"/> already learned from real
+    /// Advertisement traffic — never creates a brand-new entry from LWRP alone (see
+    /// <see cref="TryEnrichWithLwrpName"/>). A queried node's LWRP "known sources" table can list channel
+    /// numbers the node doesn't actually originate at all (LIVEWIRE.md §3 — e.g. a PC driver's own local
+    /// routing history/preset list), so a number that was never independently confirmed by that channel's
+    /// own device advertising it isn't a real, currently-existing source — treating LWRP as equally
+    /// authoritative as Advertisement for *discovering* channels (not just naming them) is exactly what
+    /// flooded the list with phantom channels 1-216+ that don't exist on the network (docs/HISTORY.md
+    /// #135), even reusing plausible-looking real station names left over in that node's own config.</summary>
     private async Task EnrichNamesViaLwrpAsync(string nodeIp)
     {
         var names = await LwrpClient.QuerySourceNamesAsync(nodeIp, LwrpTimeout, _logger);
+        var appliedCount = 0;
         foreach (var (number, name) in names)
         {
             if (!LivewireAddressing.IsValidChannelNumber(number)) continue;
 
-            _channels.AddOrUpdate(number,
-                _ => new DiscoveredLivewireChannel(number, name, "", IPAddress.Parse(nodeIp), LivewireAddressing.ChannelToMulticastAddress(number), DateTimeOffset.UtcNow),
-                (_, existing) => string.IsNullOrEmpty(existing.Name)
-                    ? existing with { Name = name, LastSeen = DateTimeOffset.UtcNow }
-                    : existing);
+            var existing = _channels.TryGetValue(number, out var value) ? (DiscoveredLivewireChannel?)value : null;
+            if (TryEnrichWithLwrpName(existing, name, DateTimeOffset.UtcNow) is { } enriched
+                && _channels.TryUpdate(number, enriched, existing!.Value))
+            {
+                appliedCount++;
+            }
         }
-        if (names.Count > 0)
-            _logger.LogDebug("Livewire discovery: LWRP {Host} — получено {Count} имён источников", nodeIp, names.Count);
+        if (appliedCount > 0)
+            _logger.LogDebug("Livewire discovery: LWRP {Host} — заполнено {Count} имён для уже известных каналов", nodeIp, appliedCount);
+    }
+
+    /// <summary>Pure decision step for <see cref="EnrichNamesViaLwrpAsync"/>, split out so the "never
+    /// invent a channel LWRP alone claims to know about" rule is unit-testable without a live LWRP/UDP
+    /// socket. Returns null (no change) if <paramref name="existing"/> is null — this channel number was
+    /// never seen via real Advertisement traffic, so LWRP mentioning it isn't enough to treat it as a
+    /// real, currently-existing source — or if <paramref name="existing"/> already has a name (Advertisement's
+    /// own <c>PSNM</c> is authoritative for a channel that provided one; LWRP only fills gaps).</summary>
+    internal static DiscoveredLivewireChannel? TryEnrichWithLwrpName(DiscoveredLivewireChannel? existing, string name, DateTimeOffset now)
+    {
+        if (existing is not { } channel) return null;
+        if (!string.IsNullOrEmpty(channel.Name)) return null;
+        return channel with { Name = name, LastSeen = now };
     }
 }
