@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Globalization;
 using System.Net;
 using System.Net.Sockets;
 using Microsoft.Extensions.Hosting;
@@ -66,6 +67,10 @@ public sealed class LivewireDiscoveryService : IHostedService
     public const int AdvertisementPort = 4001;
     private static readonly TimeSpan LwrpTimeout = TimeSpan.FromSeconds(3);
 
+    /// <summary>Same timestamp convention as the app's own log lines/metadata CSV (local time, no
+    /// offset) — see <see cref="LivewireCacheEntry.LastSeen"/>.</summary>
+    private const string LastSeenFormat = "yyyy-MM-dd HH:mm:ss";
+
     private readonly AppSettingsService _appSettings;
     private readonly YamlConfigLoader _configLoader;
     private readonly string _configDir;
@@ -117,7 +122,7 @@ public sealed class LivewireDiscoveryService : IHostedService
                 Name = c.Name,
                 DeviceName = c.DeviceName,
                 DeviceIp = c.DeviceIp?.ToString() ?? "",
-                LastSeen = c.LastSeen.ToUnixTimeSeconds(),
+                LastSeen = c.LastSeen.ToLocalTime().ToString(LastSeenFormat, CultureInfo.InvariantCulture),
             }).ToList(),
         };
         _configLoader.SaveLivewireCache(_configDir, cache);
@@ -131,10 +136,24 @@ public sealed class LivewireDiscoveryService : IHostedService
             if (!LivewireAddressing.IsValidChannelNumber(entry.Number)) continue;
             var deviceIp = string.IsNullOrEmpty(entry.DeviceIp) ? null : IPAddress.Parse(entry.DeviceIp);
             _channels[entry.Number] = new DiscoveredLivewireChannel(entry.Number, entry.Name, entry.DeviceName, deviceIp,
-                LivewireAddressing.ChannelToMulticastAddress(entry.Number), DateTimeOffset.FromUnixTimeSeconds(entry.LastSeen));
+                LivewireAddressing.ChannelToMulticastAddress(entry.Number), ParseLastSeen(entry.LastSeen));
         }
         if (cache.Channels.Count > 0)
             _logger.LogInformation("Livewire discovery: загружено {Count} каналов из кэша livewire.yaml", cache.Channels.Count);
+    }
+
+    /// <summary>Parses <see cref="LivewireCacheEntry.LastSeen"/>, accepting both the current
+    /// human-readable format and the old Unix-seconds format it replaced (docs/HISTORY.md #130) — so
+    /// upgrading doesn't silently discard every timestamp already saved in an existing
+    /// <c>config/livewire.yaml</c>. Falls back to "now" for anything else unparsable rather than
+    /// throwing and losing the whole cached entry over a cosmetic field.</summary>
+    internal static DateTimeOffset ParseLastSeen(string value)
+    {
+        if (DateTime.TryParseExact(value, LastSeenFormat, CultureInfo.InvariantCulture, DateTimeStyles.AssumeLocal, out var parsed))
+            return new DateTimeOffset(parsed.ToUniversalTime());
+        if (long.TryParse(value, out var unixSeconds))
+            return DateTimeOffset.FromUnixTimeSeconds(unixSeconds);
+        return DateTimeOffset.UtcNow;
     }
 
     /// <summary>Attempts the initial connect at hosted-service startup, using whatever NIC was already
@@ -321,7 +340,12 @@ public sealed class LivewireDiscoveryService : IHostedService
     /// <summary>Fire-and-forget, at most once per node IP for the lifetime of this service (see
     /// <see cref="_lwrpQueriedNodes"/>) — not every node speaks LWRP, and reconnecting repeatedly to
     /// one that does isn't worth the risk (see class doc comment), so a node that fails or times out
-    /// simply never gets a name from this path, falling back to whatever Advertisement already gave it.</summary>
+    /// simply never gets a name from this path, falling back to whatever Advertisement already gave it.
+    /// Names arriving here are already pre-filtered by <see cref="LwrpParser.ParseSourceNames"/> to
+    /// exclude auto-generated default-placeholder labels for never-renamed slots (a real-world node's
+    /// LWRP "known sources" table isn't scoped to what it physically originates — see LIVEWIRE.md §3 —
+    /// and can list hundreds of unconfigured slots) — this method doesn't need to, and shouldn't,
+    /// re-apply any name-quality filtering of its own.</summary>
     private async Task EnrichNamesViaLwrpAsync(string nodeIp)
     {
         var names = await LwrpClient.QuerySourceNamesAsync(nodeIp, LwrpTimeout, _logger);
