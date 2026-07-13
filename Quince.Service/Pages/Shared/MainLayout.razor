@@ -41,8 +41,6 @@
                 <button class="menu-item" title="@Loc["menu.startAllTitle"]" @onclick="StartAll">@Loc["menu.startAll"]</button>
                 <button class="menu-item" title="@Loc["menu.stopAllTitle"]" @onclick="StopAll">@Loc["menu.stopAll"]</button>
                 <div class="menu-sep"></div>
-                <button class="menu-item" title="@Loc["menu.refreshConfigTitle"]" @onclick="RefreshConfig">@Loc["menu.refreshConfig"]</button>
-                <div class="menu-sep"></div>
                 <button class="menu-item" title="@Loc["menu.tpIndicatorsTitle"]" @onclick="ToggleTpIndicators">
                     @(AppSettings.Current.ShowTpIndicators ? Loc["menu.tpIndicatorsHideAction"] : Loc["menu.tpIndicatorsShowAction"])
                 </button>
@@ -50,9 +48,8 @@
                     @(UiState.BulkSelectMode ? Loc["menu.bulkEditStop"] : Loc["menu.bulkEditStart"])
                 </button>
                 <div class="menu-sep"></div>
+                <button class="menu-item" title="@Loc["menu.refreshConfigTitle"]" @onclick="RefreshConfig">@Loc["menu.refreshConfig"]</button>
                 <button class="menu-item" title="@Loc["menu.settingsTitle"]" @onclick="OpenSettings">@Loc["menu.settings"]</button>
-                <div class="menu-sep"></div>
-                <button class="menu-item" title="@Loc["menu.readmeTitle"]" @onclick="OpenReadme">@Loc["menu.readme"]</button>
 
                 @if (CurrentUser is { AuthRequired: true })
                 {
@@ -64,6 +61,7 @@
                 }
                 <div class="menu-sep"></div>
                 <span class="menu-version" title="@Loc["menu.versionTitle"]">@_version</span>
+                <button class="menu-item" title="@Loc["menu.readmeTitle"]" @onclick="OpenReadme">@Loc["menu.readme"]</button>
                 <button class="menu-item" title="@Loc["menu.aboutTitle"]" @onclick="ShowAbout">@Loc["menu.about"]</button>
             </div>
         }
