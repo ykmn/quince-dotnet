@@ -9,10 +9,16 @@ public class AudioEngineManager : IHostedService
     private readonly ILoggerFactory _loggerFactory;
     private readonly ILogger<AudioEngineManager> _logger;
     private readonly AppSettingsService _appSettings;
+    private readonly Audio.HlsSegmentDurationService _hlsSegmentDurationService;
     private readonly string _ffmpegPath;
     private readonly string _ffprobePath;
 
     public string FfmpegPath => _ffmpegPath;
+
+    /// <summary>The non-HLS (Icecast/soundcard/Livewire) playout-buffer delay, and the last-resort
+    /// fallback for a channel not found in <see cref="_engines"/> at read time — normal per-channel
+    /// reads should prefer <see cref="GetPlayoutBufferSeconds"/>, which reflects each running
+    /// channel's own source-aware resolved delay (see <see cref="ChannelEngine.PlayoutBufferSeconds"/>).</summary>
     public double PlayoutBufferSeconds => _appSettings.Current.PlayoutBufferSeconds;
 
     private readonly Dictionary<string, ChannelEngine> _engines = new();
@@ -24,12 +30,14 @@ public class AudioEngineManager : IHostedService
     public event Action<string, string>? MetadataUpdated;
 
     public AudioEngineManager(ChannelManager channelManager, ILoggerFactory loggerFactory,
-        ILogger<AudioEngineManager> logger, IConfiguration configuration, AppSettingsService appSettings)
+        ILogger<AudioEngineManager> logger, IConfiguration configuration, AppSettingsService appSettings,
+        Audio.HlsSegmentDurationService hlsSegmentDurationService)
     {
         _channelManager = channelManager;
         _loggerFactory = loggerFactory;
         _logger = logger;
         _appSettings = appSettings;
+        _hlsSegmentDurationService = hlsSegmentDurationService;
         _ffmpegPath = PathResolver.Resolve(configuration["FfmpegPath"], "tools/ffmpeg.exe");
         _ffprobePath = PathResolver.Resolve(configuration["FfprobePath"], "tools/ffprobe.exe");
 
@@ -106,6 +114,14 @@ public class AudioEngineManager : IHostedService
         lock (_lock) { return _engines.TryGetValue(channelName, out var engine) ? engine.SampleRate : null; }
     }
 
+    /// <summary>The playout-buffer delay actually resolved for the channel's current run (see
+    /// <see cref="ChannelEngine.PlayoutBufferSeconds"/>) — source-aware (small for Icecast/soundcard/
+    /// Livewire, measured-segment-based for HLS). Null if the channel isn't currently running.</summary>
+    public double? GetPlayoutBufferSeconds(string channelName)
+    {
+        lock (_lock) { return _engines.TryGetValue(channelName, out var engine) ? engine.PlayoutBufferSeconds : null; }
+    }
+
     /// <returns>(started, eligible) — eligible counts channels whose source type supports recording, whether or not they were already running.</returns>
     public (int Started, int Eligible) StartAll()
     {
@@ -167,7 +183,8 @@ public class AudioEngineManager : IHostedService
                 () => _appSettings.Current.NewsKeywords,
                 text => PushMetadata(channelName, text),
                 () => _appSettings.Current.PlayoutBufferSeconds,
-                () => _appSettings.Current.LivewireNic);
+                () => _appSettings.Current.LivewireNic,
+                _hlsSegmentDurationService);
 
             _engines[channelName] = engine;
             try

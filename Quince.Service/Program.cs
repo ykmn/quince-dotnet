@@ -62,6 +62,8 @@ builder.Services.AddSingleton<YamlConfigLoader>();
 builder.Services.AddSingleton<ChannelManager>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<ChannelManager>());
 
+builder.Services.AddSingleton<Quince.Service.Audio.HlsSegmentDurationService>();
+
 builder.Services.AddSingleton<AudioEngineManager>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<AudioEngineManager>());
 
@@ -85,6 +87,18 @@ builder.Services.AddSingleton(sp => new LocalizationService(
     sp.GetRequiredService<AppSettingsService>(),
     Path.Combine(AppContext.BaseDirectory, "i18n")));
 builder.Logging.AddProvider(fileLoggerProvider);
+
+// Was appsettings.json's "Urls" key (docs/HISTORY.md #128, single-config-file cleanup) — must be
+// set before Build() since that's when Kestrel's listen address is actually bound; settings.yaml is
+// already loaded by this point (appConfig above), so no extra bootstrapping is needed.
+builder.WebHost.UseUrls(appConfig.Urls);
+
+// Was appsettings.json's "Logging"/"Microsoft.AspNetCore": "Warning" override (docs/HISTORY.md #128)
+// — the app's own persistent log files are filtered independently by AppConfig.LogLevel via
+// FileLoggerProvider above, so this only tames the framework's default Console/Debug/EventLog
+// providers' otherwise-chatty per-request routing logs (mostly moot for a Windows Service with no
+// attached console, but keeps `dotnet run` output readable in development).
+builder.Logging.AddFilter("Microsoft.AspNetCore", LogLevel.Warning);
 
 var app = builder.Build();
 

@@ -8,10 +8,10 @@
        и ждёт перехода в состояние Stopped.
     2. Копирует (robocopy /E, с перезаписью существующих файлов) содержимое папки
        новой версии (-SourcePath) в папку установленного приложения (-InstallPath).
-       Папка config\ и файл appsettings.json по умолчанию НЕ копируются, чтобы не
-       затереть локальные настройки/секреты и папку log\ трогать вообще не нужно —
-       её не бывает в публикации. Передайте -CopyConfig, чтобы всё же перезаписать
-       config\ и appsettings.json из новой версии.
+       Папка config\ по умолчанию НЕ копируется, чтобы не затереть локальные
+       настройки/секреты (settings.yaml и т.п.), и папку log\ трогать вообще не
+       нужно — её не бывает в публикации. Передайте -CopyConfig, чтобы всё же
+       перезаписать config\ из новой версии.
     3. Если служба была найдена — запускает её снова и ждёт состояния Running.
 
     Скрипт требует прав администратора (управление службами) и при необходимости
@@ -29,8 +29,8 @@
     файлы (обязательный).
 
 .PARAMETER CopyConfig
-    Переключатель. Если указан — config\ и appsettings.json тоже копируются из
-    новой версии поверх существующих. По умолчанию оба пропускаются.
+    Переключатель. Если указан — config\ тоже копируется из новой версии поверх
+    существующего. По умолчанию пропускается.
 
 .EXAMPLE
     .\Update-Quince.ps1 -InstallPath C:\Quince -SourcePath .\1.00.001
@@ -40,7 +40,7 @@
     .\Update-Quince.ps1 -InstallPath C:\Quince -SourcePath \\fileserver\quince\1.00.001 -WhatIf
 
 .EXAMPLE
-    # Обновить вместе с config\ и appsettings.json
+    # Обновить вместе с config\
     .\Update-Quince.ps1 -InstallPath C:\Quince -SourcePath .\1.00.001 -CopyConfig
 #>
 
@@ -150,15 +150,12 @@ else {
 }
 
 $excludeDirs = @('log')
-$excludeFiles = @()
 if (-not $CopyConfig) {
     $excludeDirs += 'config'
-    $excludeFiles += 'appsettings.json'
 }
 
 $robocopyArgs = @($resolvedSourcePath, $resolvedInstallPath, '/E', '/R:2', '/W:2', '/NFL', '/NDL', '/NJH', '/NJS')
 if ($excludeDirs.Count -gt 0) { $robocopyArgs += '/XD'; $robocopyArgs += $excludeDirs }
-if ($excludeFiles.Count -gt 0) { $robocopyArgs += '/XF'; $robocopyArgs += $excludeFiles }
 
 if ($PSCmdlet.ShouldProcess("$resolvedSourcePath -> $resolvedInstallPath", 'Скопировать файлы новой версии')) {
     Write-Host "Копирую файлы из $resolvedSourcePath в $resolvedInstallPath..."

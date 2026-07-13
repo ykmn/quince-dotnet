@@ -18,7 +18,8 @@
 - `239.193.x.x` — тот же номер, но диапазон «To»/backfeed (mix-minus), `239.196.x.x` — surround.
 - Аудио — RTP на **UDP-порту 5004**, `L24/48000/2` (24-бит PCM, 48 кГц, стерео) для стандартного
   Livewire; реальный источник иногда физически моно, при этом всё равно объявляется стерео в SDP —
-  см. `Quince.Service/Audio/LivewireCapture.cs` и `SourceConfig.LivewireStereo`.
+  `Quince.Service/Audio/LivewireCapture.cs` всегда объявляет и захватывает 2 канала, соответствуя
+  этой конвенции.
 
 ## 2. Advertisement — самореклама узла (реверс-инжиниринг, этот документ)
 

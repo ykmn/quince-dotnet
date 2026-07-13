@@ -8,11 +8,13 @@ namespace Quince.Service.Services;
 /// Serves a channel's live audio to the browser as a continuous MP3 stream, for the ▶ "listen to
 /// channel" button (<see cref="AudioPlaybackService"/>). Subscribes to the channel's raw PCM the
 /// same way <see cref="Audio.AudioWriter"/> does, but runs it through the same <see cref="PlayoutBuffer"/>
-/// the level meter uses (docs/HISTORY.md #61) before piping it through the bundled ffmpeg to encode
-/// MP3 in real time and copying ffmpeg's stdout straight into the HTTP response body — an
-/// &lt;audio&gt; element in the client plays it through the browser's/OS's current default output
-/// device. The buffer means what's heard lags the real feed by ~12s (same depth as the meter, so
-/// audio and indicator stay in sync with each other) but no longer audibly stutters on the same
+/// the level meter uses (docs/HISTORY.md #61), sized to the same source-aware delay
+/// <see cref="Audio.ChannelEngine"/> resolved for that channel's meter (docs/HISTORY.md #126 — small
+/// for continuous sources, measured-segment-based for HLS) before piping it through the bundled
+/// ffmpeg to encode MP3 in real time and copying ffmpeg's stdout straight into the HTTP response body
+/// — an &lt;audio&gt; element in the client plays it through the browser's/OS's current default
+/// output device. The buffer means what's heard lags the real feed by that same delay (so audio and
+/// indicator stay in sync with each other) but no longer audibly stutters on the same
 /// producer-side gaps the meter used to visibly freeze on. No device selection: that needs a secure
 /// context (HTTPS) for <c>HTMLMediaElement.setSinkId()</c>, which this app doesn't have yet.
 /// </summary>
@@ -37,7 +39,14 @@ public static class AudioStreamEndpoint
         // them, it just plays them at the wrong speed, audibly shifting pitch.
         var sampleRate = engineManager.GetSampleRate(channelName) ?? FallbackSampleRate;
 
-        var buffer = new PlayoutBuffer(reader, sampleRate, log, channelName, engineManager.PlayoutBufferSeconds);
+        // Same delay ChannelEngine resolved for this channel's meter (source-aware — see
+        // docs/HISTORY.md #126) so audio and the on-screen indicator stay in sync; falls back to the
+        // app-wide non-HLS setting only if the channel somehow isn't in the running-engines map at
+        // this exact moment (shouldn't normally happen: SubscribeAudio above already returned
+        // non-null, implying it's running).
+        var delaySeconds = engineManager.GetPlayoutBufferSeconds(channelName) ?? engineManager.PlayoutBufferSeconds;
+
+        var buffer = new PlayoutBuffer(reader, sampleRate, log, channelName, delaySeconds);
         buffer.Start();
 
         ctx.Response.ContentType = "audio/mpeg";

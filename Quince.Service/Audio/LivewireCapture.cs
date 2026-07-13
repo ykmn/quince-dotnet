@@ -29,9 +29,13 @@ public sealed class LivewireCapture : FfmpegPipedCapture
 {
     public const int SampleRate = 48000;
 
+    // Standard Livewire audio is always L24/48000/2 (stereo) regardless of the physical source — a
+    // real mono source is still announced as stereo in SDP (LIVEWIRE.md §1), so there's no per-channel
+    // mono/stereo choice to make.
+    public const int Channels = 2;
+
     private readonly SourceConfig _source;
     private readonly string _nic;
-    private readonly int _channels;
     private readonly string _sdpPath;
 
     public LivewireCapture(string ffmpegPath, SourceConfig source, string nic, Func<int> getReconnectDelaySeconds,
@@ -40,7 +44,6 @@ public sealed class LivewireCapture : FfmpegPipedCapture
     {
         _source = source;
         _nic = nic;
-        _channels = source.LivewireStereo ? 2 : 1;
         // One temp SDP file per instance (not per connection attempt) — its content depends only on
         // config that doesn't change within this instance's lifetime (ChannelEngine.PipelineChanged
         // already restarts the whole engine, and therefore this capture, on any Livewire* field
@@ -49,7 +52,7 @@ public sealed class LivewireCapture : FfmpegPipedCapture
     }
 
     protected override int GetSampleRate() => SampleRate;
-    protected override int GetChannels() => _channels;
+    protected override int GetChannels() => Channels;
 
     protected override string TargetDescription =>
         $"Livewire-каналу {_source.LivewireChannelNumber} ({_source.LivewireChannelName}) через {_nic}";
@@ -80,15 +83,15 @@ public sealed class LivewireCapture : FfmpegPipedCapture
             "t=0 0",
             "a=type:multicast",
             $"m=audio {LivewireAddressing.AudioPort} RTP/AVP 96",
-            $"a=rtpmap:96 L24/{SampleRate}/{_channels}",
+            $"a=rtpmap:96 L24/{SampleRate}/{Channels}",
             "",
         });
         File.WriteAllText(_sdpPath, sdp);
 
         Log.LogInformation(
-            "Livewire: канал {Number} ({Name}), мультикаст {Address}:{Port}, интерфейс {Nic} ({NicIp}), {Channels} канал(ов), SDP: {SdpPath}",
+            "Livewire: канал {Number} ({Name}), мультикаст {Address}:{Port}, интерфейс {Nic} ({NicIp}), SDP: {SdpPath}",
             _source.LivewireChannelNumber, _source.LivewireChannelName, multicastAddress, LivewireAddressing.AudioPort,
-            _nic, nicIp, _channels, _sdpPath);
+            _nic, nicIp, _sdpPath);
         Log.LogDebug("Livewire: содержимое SDP-файла:\r\n{Sdp}", sdp);
 
         return new[]
@@ -100,7 +103,7 @@ public sealed class LivewireCapture : FfmpegPipedCapture
             "-vn",
             "-acodec", "pcm_f32le",
             "-ar", SampleRate.ToString(),
-            "-ac", _channels.ToString(),
+            "-ac", Channels.ToString(),
             "-f", "f32le",
             "pipe:1",
         };
