@@ -19,7 +19,18 @@
     Поддерживает -WhatIf/-Confirm для предпросмотра без реальных изменений.
 
     -InstallPath/-SourcePath могут быть абсолютными, относительными (от текущей
-    рабочей директории) или сетевыми (\\server\share\...) путями.
+    рабочей директории) или сетевыми (\\server\share\...) путями. Если
+    -InstallPath сетевой (UNC), служба проверяется/останавливается/запускается
+    НА ТОМ УДАЛЁННОМ КОМПЬЮТЕРЕ (имя берётся из самого пути, \\<компьютер>\...),
+    а не на локальном, где выполняется сам скрипт — иначе обновление скопировало
+    бы новые файлы поверх ещё работающей на удалённой машине службы. Проверка
+    статуса идёт через Get-Service -ComputerName (тот же удалённый вызов, что
+    использует sc.exe), а сам стоп/старт — через sc.exe \\<компьютер> stop/start,
+    поскольку у Stop-Service/Start-Service нет параметра -ComputerName. Для этого
+    на удалённой машине должны быть разрешены удалённое управление службами
+    (Remote Registry/RPC, брандмауэр «Удалённое управление службами») и валидные
+    права администратора текущего пользователя НА НЕЙ — это не проверяется
+    заранее, ошибка будет вида "Отказано в доступе" от sc.exe/Get-Service.
 
 .PARAMETER InstallPath
     Папка установленного приложения, которую нужно обновить (обязательный).
@@ -118,13 +129,24 @@ if (-not $currentPrincipal.IsInRole([Security.Principal.WindowsBuiltInRole]::Adm
     exit
 }
 
+function Get-UncComputerName {
+    # Extracts "<computer>" from a "\\<computer>\share\..." path — null for a local
+    # (drive-letter or relative) path, meaning "manage the service on this machine".
+    param([string] $Path)
+    if ($Path -match '^\\\\([^\\]+)\\') { return $Matches[1] }
+    return $null
+}
+
 function Wait-ServiceStatus {
-    param([string] $Name, [string] $Status, [int] $TimeoutSeconds = 30)
+    param([string] $Name, [string] $Status, [int] $TimeoutSeconds = 30, [string] $ComputerName)
+
+    $getParams = @{ Name = $Name }
+    if ($ComputerName) { $getParams['ComputerName'] = $ComputerName }
 
     $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
     do {
         Start-Sleep -Milliseconds 500
-        $current = (Get-Service -Name $Name).Status
+        $current = (Get-Service @getParams).Status
     } while ($current -ne $Status -and (Get-Date) -lt $deadline)
 
     if ($current -ne $Status) {
@@ -132,21 +154,38 @@ function Wait-ServiceStatus {
     }
 }
 
-$service = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
+# InstallPath (not SourcePath — that's just where we copy FROM) decides which computer actually
+# runs the service: a UNC -InstallPath means the app is installed on that remote machine, so the
+# service lives there too, regardless of which machine this script itself runs on.
+$remoteComputer = Get-UncComputerName -Path $resolvedInstallPath
+$serviceLocationSuffix = if ($remoteComputer) { " на \\$remoteComputer" } else { "" }
+
+$serviceQueryParams = @{ Name = $ServiceName; ErrorAction = 'SilentlyContinue' }
+if ($remoteComputer) { $serviceQueryParams['ComputerName'] = $remoteComputer }
+$service = Get-Service @serviceQueryParams
 
 if (-not $service) {
-    Write-Warning "Служба '$ServiceName' не найдена — копирование будет выполнено без остановки/запуска службы."
+    Write-Warning "Служба '$ServiceName'$serviceLocationSuffix не найдена — копирование будет выполнено без остановки/запуска службы."
 }
 elseif ($service.Status -ne 'Stopped') {
-    if ($PSCmdlet.ShouldProcess($ServiceName, 'Остановить службу')) {
-        Write-Host "Останавливаю службу $ServiceName..."
-        Stop-Service -Name $ServiceName -Force -ErrorAction Stop
-        Wait-ServiceStatus -Name $ServiceName -Status 'Stopped'
+    if ($PSCmdlet.ShouldProcess("$ServiceName$serviceLocationSuffix", 'Остановить службу')) {
+        Write-Host "Останавливаю службу $ServiceName$serviceLocationSuffix..."
+        if ($remoteComputer) {
+            # Stop-Service has no -ComputerName — sc.exe is the one tool here that can target a
+            # remote machine directly, same remote-management channel Get-Service -ComputerName
+            # already uses under the hood.
+            & sc.exe "\\$remoteComputer" stop $ServiceName | Write-Verbose
+            if ($LASTEXITCODE -ne 0) { throw "sc.exe stop$serviceLocationSuffix завершился с кодом $LASTEXITCODE." }
+        }
+        else {
+            Stop-Service -Name $ServiceName -Force -ErrorAction Stop
+        }
+        Wait-ServiceStatus -Name $ServiceName -Status 'Stopped' -ComputerName $remoteComputer
         Write-Host "Служба остановлена."
     }
 }
 else {
-    Write-Host "Служба $ServiceName уже остановлена."
+    Write-Host "Служба $ServiceName$serviceLocationSuffix уже остановлена."
 }
 
 $excludeDirs = @('log')
@@ -168,10 +207,16 @@ if ($PSCmdlet.ShouldProcess("$resolvedSourcePath -> $resolvedInstallPath", 'Ск
 }
 
 if ($service) {
-    if ($PSCmdlet.ShouldProcess($ServiceName, 'Запустить службу')) {
-        Write-Host "Запускаю службу $ServiceName..."
-        Start-Service -Name $ServiceName -ErrorAction Stop
-        Wait-ServiceStatus -Name $ServiceName -Status 'Running'
+    if ($PSCmdlet.ShouldProcess("$ServiceName$serviceLocationSuffix", 'Запустить службу')) {
+        Write-Host "Запускаю службу $ServiceName$serviceLocationSuffix..."
+        if ($remoteComputer) {
+            & sc.exe "\\$remoteComputer" start $ServiceName | Write-Verbose
+            if ($LASTEXITCODE -ne 0) { throw "sc.exe start$serviceLocationSuffix завершился с кодом $LASTEXITCODE." }
+        }
+        else {
+            Start-Service -Name $ServiceName -ErrorAction Stop
+        }
+        Wait-ServiceStatus -Name $ServiceName -Status 'Running' -ComputerName $remoteComputer
         Write-Host "Служба запущена."
     }
 }
