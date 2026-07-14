@@ -25,6 +25,19 @@ public static class AudioStreamEndpoint
 
     public static async Task StreamAsync(string channelName, HttpContext ctx, AudioEngineManager engineManager, ILogger<AudioEngineManager> log)
     {
+        // ASP.NET Core deliberately does NOT percent-decode "%2F"/"%5C" when binding a route value
+        // (confirmed empirically 2026-07-14 via a temporary debug-echo endpoint) — a guard against
+        // path-traversal-style segment-count ambiguity for routes that build filesystem paths from
+        // route values. This route never touches the filesystem with channelName (only a dictionary
+        // lookup below), so there's no such risk here, and leaving "%2F" undecoded is exactly why
+        // channel names containing "/" (this app's own "format/bitrate" naming convention, e.g.
+        // "Studio21 Y401 mp3/96k") never matched any running engine: the value reaching this method
+        // was literally "...mp3%2F96k", not "...mp3/96k". Un-escaping it here is what actually fixes
+        // that — the earlier catch-all route change (docs/CHANGELOG.md 1.00.048) was chasing the
+        // wrong mechanism (assumed the opposite: Kestrel over-decoding "%2F" into a segment-breaking
+        // "/") and left this exact bug in place, which is why it kept failing after that fix too.
+        channelName = Uri.UnescapeDataString(channelName);
+
         var consumerId = $"browser-playback-{Guid.NewGuid():N}";
         var reader = engineManager.SubscribeAudio(channelName, consumerId);
         if (reader is null)
@@ -49,6 +62,24 @@ public static class AudioStreamEndpoint
         var buffer = new PlayoutBuffer(reader, sampleRate, log, channelName, delaySeconds);
         buffer.Start();
 
+        var ct = ctx.RequestAborted;
+
+        // Diagnostic watchdog (docs/HISTORY.md — listen-in silently producing no audio for soundcard/
+        // Livewire channels, root cause not found by static review of this pipeline): a real "capture
+        // is healthy but this specific browser-playback consumer never receives anything" bug would
+        // otherwise be invisible — the HTTP response just opens and idles forever with no error
+        // anywhere. `+3` margin above the priming target covers ordinary scheduling jitter.
+        _ = Task.Run(async () =>
+        {
+            try { await Task.Delay(TimeSpan.FromSeconds(delaySeconds + 3), ct); }
+            catch (OperationCanceledException) { return; }
+            if (!buffer.Primed)
+                using (log.BeginScope(new Dictionary<string, object> { ["Channel"] = channelName }))
+                    log.LogWarning(
+                        "Потоковое прослушивание «{Channel}»: буфер не наполнился за {Timeout:F0}с — от захвата не пришло ни одного аудио-чанка для этого прослушивания, хотя канал числится запущенным",
+                        channelName, delaySeconds + 3);
+        });
+
         ctx.Response.ContentType = "audio/mpeg";
         ctx.Response.Headers.CacheControl = "no-store";
 
@@ -62,6 +93,7 @@ public static class AudioStreamEndpoint
         };
         foreach (var a in new[]
                  {
+                     "-hide_banner", "-loglevel", "error",
                      "-f", "f32le", "-ar", sampleRate.ToString(), "-ac", Channels.ToString(), "-i", "pipe:0",
                      "-f", "mp3", "-b:a", "128k", "pipe:1",
                  })
@@ -81,9 +113,9 @@ public static class AudioStreamEndpoint
             return;
         }
 
-        var ct = ctx.RequestAborted;
         using var streamScope = log.BeginScope(new Dictionary<string, object> { ["Channel"] = channelName });
-        _ = DrainStderrAsync(proc, log);
+        var stderrBuffer = new System.Text.StringBuilder();
+        _ = DrainStderrAsync(proc, log, stderrBuffer);
 
         var pumpIn = Task.Run(async () =>
         {
@@ -116,13 +148,26 @@ public static class AudioStreamEndpoint
         {
             engineManager.UnsubscribeAudio(channelName, consumerId);
             buffer.Stop();
+            // An exit here (before the client itself disconnected, i.e. reached without an
+            // OperationCanceledException above) means ffmpeg gave up on its own — e.g. an
+            // unsupported/malformed input format for this channel's sample rate. Previously this
+            // whole class of failure was invisible: stderr only ever went to LogDebug, below the
+            // app's default INFO level, with no escalation on a bad exit (unlike AudioWriter/
+            // FfmpegPipedCapture, which both buffer stderr and log it at Error on a crash).
+            if (proc.HasExited && proc.ExitCode != 0)
+            {
+                var stderr = stderrBuffer.ToString();
+                using (log.BeginScope(new Dictionary<string, object> { ["Channel"] = channelName }))
+                    log.LogWarning("Потоковое прослушивание: ffmpeg завершился с кодом {Code} до отключения клиента. Stderr: {Stderr}",
+                        proc.ExitCode, string.IsNullOrWhiteSpace(stderr) ? "(пусто)" : stderr.Trim());
+            }
             try { if (!proc.HasExited) proc.Kill(true); } catch { /* already exited */ }
             try { await pumpIn; } catch { /* already logged above */ }
             proc.Dispose();
         }
     }
 
-    private static async Task DrainStderrAsync(Process proc, ILogger log)
+    private static async Task DrainStderrAsync(Process proc, ILogger log, System.Text.StringBuilder stderrBuffer)
     {
         try
         {
@@ -130,6 +175,7 @@ public static class AudioStreamEndpoint
             while ((line = await proc.StandardError.ReadLineAsync()) != null)
             {
                 log.LogDebug("ffmpeg (потоковое прослушивание): {Line}", line);
+                stderrBuffer.AppendLine(line);
             }
         }
         catch { /* process exited/killed while reading */ }

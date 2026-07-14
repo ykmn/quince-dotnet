@@ -96,6 +96,12 @@ public sealed class PlayoutBuffer
 
     public ChannelReader<AudioChunk> Reader => _output.Reader;
 
+    /// <summary>Whether priming has completed (see <see cref="Enqueue"/>) — exposed so a consumer
+    /// like <see cref="Services.AudioStreamEndpoint"/> can tell "no chunks ever arrived at all" apart
+    /// from "primed fine, something downstream of this buffer is the problem" when diagnosing a
+    /// silently-failing listen-in stream.</summary>
+    public bool Primed { get { lock (_queueLock) return _primed; } }
+
     public void Start()
     {
         _cts = new CancellationTokenSource();
@@ -123,7 +129,7 @@ public sealed class PlayoutBuffer
                 var gap = Stopwatch.GetElapsedTime(lastChunkAt);
                 lastChunkAt = Stopwatch.GetTimestamp();
                 if (gap >= RawGapWarnThreshold)
-                    _log.LogDebug("Пауза в поступлении аудио-чанков: {GapMs:F0}мс с предыдущего чанка", gap.TotalMilliseconds);
+                    _log.LogDebug("Пауза в поступлении аудио-чанков ({Channel}): {GapMs:F0}мс с предыдущего чанка", _channelName, gap.TotalMilliseconds);
 
                 Enqueue(chunk);
             }
@@ -147,16 +153,29 @@ public sealed class PlayoutBuffer
 
     internal void Enqueue(AudioChunk chunk)
     {
+        bool justPrimed;
+        double queuedAtPrime = 0;
         lock (_queueLock)
         {
             _queue.Enqueue(chunk);
             _queuedSeconds += chunk.FrameCount / (double)_sampleRate;
-            if (!_primed && _queuedSeconds >= _targetDelaySeconds)
+            justPrimed = !_primed && _queuedSeconds >= _targetDelaySeconds;
+            if (justPrimed)
             {
                 _primed = true;
                 _releaseAnchor = Stopwatch.GetTimestamp();
+                queuedAtPrime = _queuedSeconds;
             }
         }
+        // Logged outside the lock (ILogger calls shouldn't hold it) — the only "this consumer is
+        // actually getting real audio" signal this class previously emitted anywhere, at any level.
+        // Its absence in the log for a given listen-in attempt now directly means "no chunks ever
+        // reached this PlayoutBuffer instance", not just "audio started but sounds off" — see also
+        // the "never primed" watchdog in AudioStreamEndpoint, which catches the case where Enqueue
+        // is never even called.
+        if (justPrimed)
+            _log.LogInformation("PlayoutBuffer «{Channel}»: буфер прогрет ({Queued:F1}с накоплено, цель {Target:F1}с)",
+                _channelName, queuedAtPrime, _targetDelaySeconds);
     }
 
     /// <summary>Releases every queued chunk whose scheduled playout time (real time elapsed since

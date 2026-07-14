@@ -201,7 +201,12 @@ app.MapPost("/api/auth/logout", (HttpContext context, AuthService auth) =>
     return Results.Ok(new { ok = true });
 });
 
-app.MapGet("/api/playback/stream/{channelName}", AudioStreamEndpoint.StreamAsync);
+// Catch-all ({*channelName}), not a plain {channelName} segment — kept as defense-in-depth in case
+// a channel name is ever routed through with a genuinely undecoded "/" in Path, though the actual
+// fix for names containing "/" (e.g. "Studio21 Y401 mp3/96k" — this app's own "format/bitrate"
+// naming convention) turned out to be in AudioStreamEndpoint.StreamAsync itself: see its own comment
+// for why the route value needs an explicit Uri.UnescapeDataString before use.
+app.MapGet("/api/playback/stream/{*channelName}", AudioStreamEndpoint.StreamAsync);
 
 app.MapBlazorHub();
 app.MapFallbackToPage("/_Host");
