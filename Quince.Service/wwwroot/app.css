@@ -457,6 +457,14 @@ body {
     border: 1px solid #fecaca;
 }
 
+/* Amber rather than the (red) .filter-state-error tone — "Тишина" is a distinct condition (the
+   "Звук" indicator, not the recording-status dot) and shouldn't read as identical to "Ошибка". */
+.filter-cycle-btn.filter-state-silent {
+    background: #fef3c7;
+    color: #b45309;
+    border: 1px solid #fde68a;
+}
+
 .status-bar {
     display: flex;
     align-items: center;
@@ -735,6 +743,120 @@ body {
     color: var(--text);
     font-size: 9px;
     font-family: monospace;
+}
+
+/* ── Compact ("плитками") channel layout — burger-menu toggle, off by default (docs/HISTORY.md
+   #145). Many small tiles per row instead of one full-width row per channel: icon-only buttons, a
+   vertical TP meter instead of the horizontal .level-widget, and Вход/Файл reduced to just the
+   audio format (ChannelDisplayFormatter.FormatInputFormatOnly / .OutputFormatQuality — no URL/path,
+   so no maskable-value here either). */
+.channel-list-compact {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    gap: 10px;
+}
+
+.channel-card-compact {
+    display: flex;
+    gap: 7px;
+    min-height: 150px;
+    padding: 8px;
+}
+
+.compact-meter {
+    flex: 0 0 auto;
+    align-self: stretch;
+}
+
+.compact-meter-track {
+    position: relative;
+    width: 6px;
+    height: 100%;
+    border-radius: 3px;
+    overflow: hidden;
+}
+
+/* Anchored to the top, hides the not-yet-reached (upper) portion — same trick as .level-cover/
+   .vmeter-cover, just vertical here. */
+.compact-meter-cover {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    background: var(--track-bg);
+}
+
+.compact-main {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+}
+
+.compact-top {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    min-width: 0;
+}
+
+/* Same status signal as .channel-card.is-recording/.is-listening/.has-error's border-left accent,
+   just as a light fill behind the name text instead of a side border — literal (non-themed) color
+   pairs reused from .btn-start/.btn-stop/.filter-state-silent rather than invented fresh, same
+   reasoning as those: a status color should read the same regardless of light/dark mode. */
+.compact-name {
+    display: block;
+    flex: 1;
+    min-width: 0;
+    font-weight: 700;
+    font-size: 12.5px;
+    color: var(--text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    padding: 3px 6px;
+    border-radius: 5px;
+    background: var(--surface-alt);
+}
+
+.compact-name.is-recording { background: #dcfce7; color: #15803d; }
+.compact-name.is-listening { background: #fef3c7; color: #b45309; }
+.compact-name.has-error    { background: #fee2e2; color: #b91c1c; }
+
+.compact-dots {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.compact-fmts {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+}
+
+.compact-fmt {
+    color: var(--text-faint);
+    font-size: 10.5px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.compact-btns {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 3px;
+    margin-top: auto;
+}
+
+.btn.btn-icon {
+    width: 100%;
+    padding: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
 }
 
 .app-footer {
@@ -1466,4 +1588,86 @@ body {
     font-size: 12px;
     padding: 6px 8px;
     margin: 0;
+}
+
+/* ── Disk-usage indicator (channel edit dialog, "Выход" tab) ──── */
+
+.disk-usage-section {
+    margin: 12px 0;
+}
+
+.disk-usage-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 6px;
+    font-size: 12px;
+    color: var(--text-secondary);
+}
+
+.disk-usage-track {
+    position: relative;
+    height: 14px;
+    border-radius: 7px;
+    background: var(--track-bg);
+    overflow: hidden;
+}
+
+.disk-usage-fill {
+    height: 100%;
+    transition: width 0.3s ease;
+}
+
+.disk-usage-fill-ok {
+    background: #28a428;
+}
+
+.disk-usage-fill-warn {
+    background: #ccaa00;
+}
+
+.disk-usage-fill-danger {
+    background: #cc1818;
+}
+
+/* ── Resource monitor dialog (admin-only burger-menu item) ──── */
+
+.resource-monitor-table-wrap {
+    max-height: 360px;
+    overflow-y: auto;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    margin: 12px 0;
+}
+
+.resource-monitor-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+}
+
+.resource-monitor-table th,
+.resource-monitor-table td {
+    padding: 5px 8px;
+    text-align: left;
+    color: var(--text);
+    border-bottom: 1px solid var(--border);
+}
+
+.resource-monitor-table th {
+    background: var(--surface-alt);
+    position: sticky;
+    top: 0;
+}
+
+.resource-monitor-table td:nth-child(2),
+.resource-monitor-table td:nth-child(3),
+.resource-monitor-table td:nth-child(4) {
+    font-family: monospace;
+}
+
+.resource-monitor-table tfoot td {
+    font-weight: 700;
+    border-bottom: none;
+    border-top: 2px solid var(--border-strong);
 }

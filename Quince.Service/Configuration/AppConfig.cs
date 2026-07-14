@@ -34,6 +34,12 @@ public class AppConfig
     /// per-channel indicators panel (▦ button) is unaffected either way.</summary>
     public bool ShowTpIndicators { get; set; } = false;
 
+    /// <summary>Compact ("плитками") channel-card layout — many small tiles per row instead of one
+    /// full-width row per channel, with icon-only buttons, a vertical (rather than horizontal) TP
+    /// meter, and Вход/Файл reduced to just the audio format (no URL/path). Off by default (full
+    /// layout); toggled from the burger menu and persisted the same way as <see cref="ShowTpIndicators"/>.</summary>
+    public bool CompactLayout { get; set; } = false;
+
     /// <summary>How many seconds of audio <see cref="Audio.PlayoutBuffer"/> banks before releasing
     /// anything to the level meter/browser listen-in (docs/HISTORY.md #61), for continuous sources
     /// (Icecast/soundcard/Livewire) — HLS channels size themselves automatically from their own

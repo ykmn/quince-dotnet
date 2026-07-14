@@ -98,6 +98,17 @@ public sealed class ChannelEngine
 
     public void Unsubscribe(string consumerId) => _capture?.Unsubscribe(consumerId);
 
+    /// <summary>Every subprocess this channel currently has running, for the admin "Монитор
+    /// ресурсов" dialog (<see cref="Services.ProcessMonitorService"/>) — the capture backend's own
+    /// ffmpeg (absent for <see cref="SoundcardCapture"/>, in-process) and/or the output writer's
+    /// ffmpeg (absent when <see cref="ChannelConfig.RecordAudio"/> is off or between file rotations).
+    /// Empty while the channel isn't running.</summary>
+    public IEnumerable<(string Role, int Pid)> GetProcessIds()
+    {
+        if (_capture?.ProcessId is int capturePid) yield return ("capture", capturePid);
+        if (_writer?.ProcessId is int writerPid) yield return ("writer", writerPid);
+    }
+
     /// <param name="suppressRecording">When true, skip creating the <see cref="AudioWriter"/> even
     /// if <see cref="ChannelConfig.RecordAudio"/> is set — used by
     /// <see cref="Services.AudioPlaybackService"/>'s temporary auto-start for browser listen-in on a
@@ -368,6 +379,7 @@ public sealed class ChannelEngine
 
     private void OnSilence()
     {
+        if (!_config.SilenceDetector.DontStopRecording) _writer?.SetRecordingActive(false);
         EngineStatus newStatus;
         lock (_statusLock)
         {
@@ -379,6 +391,7 @@ public sealed class ChannelEngine
 
     private void OnSound()
     {
+        if (!_config.SilenceDetector.DontStopRecording) _writer?.SetRecordingActive(true);
         EngineStatus newStatus;
         lock (_statusLock)
         {

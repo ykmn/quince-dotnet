@@ -122,6 +122,20 @@ public class AudioEngineManager : IHostedService
         lock (_lock) { return _engines.TryGetValue(channelName, out var engine) ? engine.PlayoutBufferSeconds : null; }
     }
 
+    /// <summary>Every currently-running channel's subprocess PIDs (see <see cref="ChannelEngine.GetProcessIds"/>),
+    /// for the admin "Монитор ресурсов" dialog (<see cref="ProcessMonitorService"/>).</summary>
+    public IReadOnlyList<(string ChannelName, string Role, int Pid)> GetTrackedProcesses()
+    {
+        lock (_lock)
+        {
+            var result = new List<(string, string, int)>();
+            foreach (var (channelName, engine) in _engines)
+                foreach (var (role, pid) in engine.GetProcessIds())
+                    result.Add((channelName, role, pid));
+            return result;
+        }
+    }
+
     /// <returns>(started, eligible) — eligible counts channels whose source type supports recording, whether or not they were already running.</returns>
     public (int Started, int Eligible) StartAll()
     {

@@ -89,6 +89,26 @@ public static class ChannelDisplayFormatter
         return ($"Stream: {st} · ", src.Url);
     }
 
+    /// <summary>Compact-layout counterpart to <see cref="FormatSourceParts"/> — just the input audio
+    /// format/delivery type, no URL, device name, or channel number (docs/HISTORY.md #145). There's
+    /// no live bitrate/codec probe for stream sources (unlike <see cref="ChannelConfig.InputFormat"/>'s
+    /// sample-rate/channels, which soundcard capture reports directly), so streams fall back to their
+    /// configured delivery type (HLS/ICECAST/...) — the one input-format fact actually known for them.</summary>
+    public static string FormatInputFormatOnly(ChannelConfig config)
+    {
+        var src = config.Source;
+        if (src.Type == "soundcard")
+        {
+            var inf = config.InputFormat;
+            var chLabel = inf.Channels == 2 ? "Stereo" : inf.Channels == 1 ? "Mono" : inf.Channels > 0 ? $"{inf.Channels}ch" : "";
+            var sr = inf.SampleRate != 0 ? $"{inf.SampleRate}Hz" : "";
+            var parts = new[] { sr, chLabel }.Where(p => !string.IsNullOrEmpty(p)).ToArray();
+            return parts.Length > 0 ? string.Join(" ", parts) : "PCM";
+        }
+        if (src.Type == "livewire") return "Livewire";
+        return string.IsNullOrEmpty(src.StreamType) ? "STREAM" : src.StreamType.ToUpperInvariant();
+    }
+
     public static string FormatOutput(ChannelConfig config, LocalizationService loc)
     {
         var (formatQuality, path, duration) = FormatOutputParts(config, loc);

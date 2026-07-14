@@ -32,6 +32,11 @@ public class ChannelUiState
 
     public bool BulkEditOpen { get; private set; }
 
+    /// <summary>The admin-only "Монитор ресурсов" dialog (burger menu) — gated at the menu-item
+    /// level by <see cref="Auth.CurrentUserContext.CanManage"/>, not here, same as every other
+    /// management dialog this class opens.</summary>
+    public bool ResourceMonitorOpen { get; private set; }
+
     public void ToggleBulkSelectMode()
     {
         if (BulkSelectMode) EndBulkSelect();
@@ -192,6 +197,18 @@ public class ChannelUiState
     public void CloseReadme()
     {
         ReadmeOpen = false;
+        Notify();
+    }
+
+    public void OpenResourceMonitor()
+    {
+        ResourceMonitorOpen = true;
+        Notify();
+    }
+
+    public void CloseResourceMonitor()
+    {
+        ResourceMonitorOpen = false;
         Notify();
     }
 

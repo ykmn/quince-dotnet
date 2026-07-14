@@ -14,6 +14,12 @@ public interface IAudioCapture
     StreamStatus Status { get; }
     int ReconnectAttempt { get; }
 
+    /// <summary>OS process ID of this backend's own subprocess while it's running, for the admin
+    /// "Монитор ресурсов" dialog (<see cref="Services.ProcessMonitorService"/>) — null for a backend
+    /// with no subprocess of its own (<see cref="SoundcardCapture"/>, in-process via BASS) or while
+    /// stopped/reconnecting between attempts.</summary>
+    int? ProcessId { get; }
+
     ChannelReader<AudioChunk> Subscribe(string consumerId);
     void Unsubscribe(string consumerId);
     void Start();

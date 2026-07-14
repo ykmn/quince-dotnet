@@ -71,6 +71,7 @@ public abstract class FfmpegPipedCapture : IAudioCapture
 
     public StreamStatus Status => _status;
     public int ReconnectAttempt => _reconnectAttempt;
+    public int? ProcessId => _process?.Id;
 
     /// <summary>Builds this attempt's ffmpeg command-line arguments (last element is always the
     /// output, "pipe:1" for f32le). Called fresh at the start of every connection attempt, so a

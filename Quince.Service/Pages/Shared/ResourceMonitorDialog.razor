@@ -1,0 +1,92 @@
+@using System.Globalization
+@using Quince.Service.Services
+@inject ProcessMonitorService ProcessMonitor
+@inject LocalizationService Loc
+@implements IDisposable
+
+<div class="modal-overlay" @onclick="Close">
+    <div class="modal-box modal-box-wide" @onclick:stopPropagation="true">
+        <h2>@Loc["resourceMonitor.title"]</h2>
+        <p class="form-hint-neutral">@Loc["resourceMonitor.hint"]</p>
+
+        <div class="resource-monitor-table-wrap">
+            <table class="resource-monitor-table">
+                <thead>
+                    <tr>
+                        <th>@Loc["resourceMonitor.columnProcess"]</th>
+                        <th>@Loc["resourceMonitor.columnPid"]</th>
+                        <th>@Loc["resourceMonitor.columnCpu"]</th>
+                        <th>@Loc["resourceMonitor.columnMemory"]</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var row in _rows)
+                    {
+                        <tr>
+                            <td>@Label(row)</td>
+                            <td>@row.Pid</td>
+                            <td>@(row.CpuPercent is { } cpu ? cpu.ToString("F1", CultureInfo.InvariantCulture) + " %" : "…")</td>
+                            <td>@FormatMemory(row.MemoryBytes)</td>
+                        </tr>
+                    }
+                </tbody>
+                <tfoot>
+                    <tr>
+                        <td>@Loc["resourceMonitor.total"]</td>
+                        <td></td>
+                        <td>@(_rows.Any(r => r.CpuPercent.HasValue) ? _rows.Sum(r => r.CpuPercent ?? 0).ToString("F1", CultureInfo.InvariantCulture) + " %" : "…")</td>
+                        <td>@FormatMemory(_rows.Sum(r => r.MemoryBytes))</td>
+                    </tr>
+                </tfoot>
+            </table>
+        </div>
+
+        <div class="form-actions">
+            <button class="btn btn-small" @onclick="Close">@Loc["common.close"]</button>
+        </div>
+    </div>
+</div>
+
+@code {
+    [Parameter] public EventCallback OnClose { get; set; }
+
+    // 2s matches the general refresh cadence used elsewhere in the app (see MainLayout's braille
+    // buffering timer) — frequent enough to feel "live" without re-sampling every tracked process
+    // (a handful of ffmpeg subprocesses plus the main process) needlessly often.
+    private static readonly TimeSpan RefreshInterval = TimeSpan.FromSeconds(2);
+
+    private IReadOnlyList<ProcessUsageRow> _rows = Array.Empty<ProcessUsageRow>();
+    private System.Threading.Timer? _timer;
+
+    protected override void OnInitialized()
+    {
+        Refresh();
+        _timer = new System.Threading.Timer(_ => InvokeAsync(() =>
+        {
+            Refresh();
+            StateHasChanged();
+        }), null, RefreshInterval, RefreshInterval);
+    }
+
+    private void Refresh()
+    {
+        // Main process first, then every channel's own rows sorted by their label (channel name,
+        // then "захват" before "запись файла" alphabetically works out to capture-before-writer too).
+        _rows = ProcessMonitor.Snapshot()
+            .OrderBy(r => r.ChannelName is null ? 0 : 1)
+            .ThenBy(r => r.ChannelName, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(r => r.Role, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    private string Label(ProcessUsageRow row) => row.ChannelName is null
+        ? Loc["resourceMonitor.mainProcess"]
+        : $"{row.ChannelName} — {(row.Role == "capture" ? Loc["resourceMonitor.roleCapture"] : Loc["resourceMonitor.roleWriter"])}";
+
+    private string FormatMemory(long bytes) =>
+        (bytes / (1024.0 * 1024.0)).ToString("F1", CultureInfo.InvariantCulture) + " " + Loc["resourceMonitor.memoryUnit"];
+
+    private void Close() => OnClose.InvokeAsync();
+
+    public void Dispose() => _timer?.Dispose();
+}

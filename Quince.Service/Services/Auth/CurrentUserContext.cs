@@ -12,4 +12,11 @@ public class CurrentUserContext
     public bool AuthRequired { get; set; }
     public string? Username { get; set; }
     public bool IsAdmin { get; set; }
+
+    /// <summary>Gate for every management action (create/edit/clone/delete a channel, start/stop
+    /// recording, bulk edit, refresh config, app settings, resource monitor). True when auth isn't
+    /// configured at all (today's default open-app behavior, unchanged) or when the logged-in user
+    /// is an admin (<see cref="IsAdmin"/>, from <c>config/users.yaml</c>'s <c>is_admin</c> or an
+    /// AD <c>admin_groups</c> membership) — false only for an authenticated non-admin user.</summary>
+    public bool CanManage => !AuthRequired || IsAdmin;
 }

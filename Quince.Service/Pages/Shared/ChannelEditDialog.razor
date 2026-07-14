@@ -1,3 +1,4 @@
+@using System.Globalization
 @using Microsoft.AspNetCore.Components
 @using Quince.Service.Audio
 @using Quince.Service.Audio.Livewire
@@ -27,7 +28,7 @@
 
         <div class="dialog-tabs">
             <button type="button" class="dialog-tab @(_activeTab == Tab.Input ? "dialog-tab-active" : "")" @onclick="() => _activeTab = Tab.Input">@Loc["channelEdit.tabInput"]</button>
-            <button type="button" class="dialog-tab @(_activeTab == Tab.Output ? "dialog-tab-active" : "")" @onclick="() => _activeTab = Tab.Output">@Loc["channelEdit.tabOutput"]</button>
+            <button type="button" class="dialog-tab @(_activeTab == Tab.Output ? "dialog-tab-active" : "")" @onclick="SwitchToOutputTab">@Loc["channelEdit.tabOutput"]</button>
             <button type="button" class="dialog-tab @(_activeTab == Tab.Silence ? "dialog-tab-active" : "")" @onclick="() => _activeTab = Tab.Silence">@Loc["channelEdit.tabSilence"]</button>
         </div>
 
@@ -260,6 +261,24 @@
                     </select>
                 }
             </div>
+
+            <div class="disk-usage-section">
+                <div class="disk-usage-header">
+                    <span>@Loc["channelEdit.diskUsageTitle"]</span>
+                    <button type="button" class="btn btn-small" @onclick="RefreshDiskUsageAsync" disabled="@_scanningDiskUsage"
+                            title="@Loc["channelEdit.diskUsageRefreshTitle"]">
+                        @(_scanningDiskUsage ? Loc["channelEdit.diskUsageScanning"] : Loc["common.refresh"])
+                    </button>
+                </div>
+                <div class="disk-usage-track">
+                    <div class="disk-usage-fill @DiskUsageZoneClass" style="width: @(DiskUsageFillPercentText)%;"></div>
+                </div>
+                <div class="form-hint-neutral">@DiskUsageSummaryText</div>
+                @if (_diskUsageError is not null)
+                {
+                    <div class="form-error">@_diskUsageError</div>
+                }
+            </div>
         }
 
         @if (_activeTab == Tab.Silence)
@@ -278,6 +297,9 @@
 
                     <label title="@Loc["channelEdit.resumeTitle"]">@Loc["channelEdit.resumeLabel"]</label>
                     <input type="number" step="0.1" @bind="_draft.SilenceDetector.ResumeSeconds" title="@Loc["channelEdit.resumeTitle"]" />
+
+                    <label title="@Loc["channelEdit.dontStopRecordingTitle"]">@Loc["channelEdit.dontStopRecordingLabel"]</label>
+                    <input type="checkbox" @bind="_draft.SilenceDetector.DontStopRecording" title="@Loc["channelEdit.dontStopRecordingTitle"]" />
                 }
             </div>
         }
@@ -317,6 +339,16 @@
     private bool _detectingMetadata;
     private string? _metadataStatusText;
     private string _metadataStatusClass = "form-hint-neutral";
+
+    // Disk-usage indicator ("Выход" tab): the folder scan is I/O (recursive file enumeration, maybe
+    // over a slow network share) so it only runs once per dialog open (lazily, the first time the
+    // Output tab is shown — see SwitchToOutputTab) or on the explicit refresh button, never on every
+    // keystroke. The bitrate/retention projection itself is pure math (DiskUsageEstimator) and stays
+    // live off `_draft` with no I/O involved.
+    private bool _diskUsageLoaded;
+    private bool _scanningDiskUsage;
+    private long? _currentUsageBytes;
+    private string? _diskUsageError;
 
     private string OriginalModeResolvedFormat => AudioWriter.ResolveEffectiveFormat(_draft).FileFormat.ToUpperInvariant();
 
@@ -364,6 +396,97 @@
     {
         if (_draft.Source.Type == "soundcard") RefreshDevices();
         else if (_draft.Source.Type == "livewire") RefreshLivewireChannels();
+    }
+
+    private void SwitchToOutputTab()
+    {
+        _activeTab = Tab.Output;
+        if (!_diskUsageLoaded) _ = RefreshDiskUsageAsync();
+    }
+
+    private long? EstimatedTotalBytes => DiskUsageEstimator.EstimateTotalBytes(_draft);
+
+    private double DiskUsageFillPercent
+    {
+        get
+        {
+            if (_currentUsageBytes is not long used || EstimatedTotalBytes is not long total || total <= 0) return 0;
+            return Math.Clamp(used / (double)total * 100.0, 0, 100);
+        }
+    }
+
+    // CSS numbers must use '.' as the decimal separator regardless of server locale, same pitfall as
+    // ChannelCard's CoverPercentText (docs/HISTORY.md — ru-RU renders "45,7", invalid CSS). Rounded to
+    // 2 decimal places for the summary text's "X% от прогноза" — the bar's own width tolerates the
+    // same precision fine.
+    private string DiskUsageFillPercentText => DiskUsageFillPercent.ToString("F2", CultureInfo.InvariantCulture);
+
+    private string DiskUsageZoneClass => DiskUsageFillPercent switch
+    {
+        >= 90 => "disk-usage-fill-danger",
+        >= 70 => "disk-usage-fill-warn",
+        _ => "disk-usage-fill-ok",
+    };
+
+    private static string FormatGb(long bytes) => (bytes / (1024.0 * 1024 * 1024)).ToString("F2", CultureInfo.InvariantCulture);
+
+    private string DiskUsageSummaryText
+    {
+        get
+        {
+            if (string.IsNullOrWhiteSpace(_draft.SavePath)) return Loc["channelEdit.diskUsageNoPath"];
+            if (_currentUsageBytes is not long used) return _scanningDiskUsage ? Loc["channelEdit.diskUsageScanning"] : Loc["channelEdit.diskUsageNoPath"];
+
+            var usedText = Loc.T("channelEdit.diskUsageGb", FormatGb(used));
+            if (EstimatedTotalBytes is not long total)
+                return Loc.T("channelEdit.diskUsageSummaryUnlimited", usedText);
+
+            var totalText = Loc.T("channelEdit.diskUsageGb", FormatGb(total));
+            return Loc.T("channelEdit.diskUsageSummaryLimited", totalText, _draft.RetentionDays, usedText, DiskUsageFillPercentText);
+        }
+    }
+
+    /// <summary>Recursively sums every file under <see cref="ChannelConfig.SavePath"/> — bounded with
+    /// the same timeout/exception-handling shape as <see cref="ValidateSavePathAsync"/> since this can
+    /// be a slow network share, and must never leave the button stuck on "Подсчёт…" forever.</summary>
+    private async Task RefreshDiskUsageAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_draft.SavePath))
+        {
+            _diskUsageLoaded = true;
+            return;
+        }
+
+        _scanningDiskUsage = true;
+        _diskUsageError = null;
+        StateHasChanged();
+
+        var path = _draft.SavePath;
+        try
+        {
+            var task = Task.Run(() => Directory.Exists(path)
+                ? Directory.EnumerateFiles(path, "*", SearchOption.AllDirectories).Sum(f => new FileInfo(f).Length)
+                : 0L);
+            var completed = await Task.WhenAny(task, Task.Delay(TimeSpan.FromSeconds(8)));
+            if (completed != task)
+            {
+                _diskUsageError = Loc["channelEdit.errorSavePathTimeout"];
+            }
+            else
+            {
+                _currentUsageBytes = await task;
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NotSupportedException or ArgumentException)
+        {
+            _diskUsageError = Loc.T("channelEdit.diskUsageScanError", ex.Message);
+        }
+        finally
+        {
+            _scanningDiskUsage = false;
+            _diskUsageLoaded = true;
+            StateHasChanged();
+        }
     }
 
     /// <summary>Re-attaches the column-resize drag handles every render — cheap no-op once the table's

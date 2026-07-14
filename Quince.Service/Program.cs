@@ -74,6 +74,7 @@ builder.Services.AddScoped<ChannelUiState>();
 builder.Services.AddSingleton<FolderBrowserService>();
 builder.Services.AddSingleton<MetadataDetectionService>();
 builder.Services.AddSingleton<AudioPlaybackService>();
+builder.Services.AddSingleton<ProcessMonitorService>();
 
 var configDir = PathResolver.Resolve(builder.Configuration["ConfigDir"], "config");
 var logDir = PathResolver.Resolve(builder.Configuration["LogDir"], "log");

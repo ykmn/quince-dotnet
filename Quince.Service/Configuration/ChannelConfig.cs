@@ -66,4 +66,10 @@ public class SilenceDetectorConfig
     public double ThresholdDbfs { get; set; } = -60.0;
     public double TriggerSeconds { get; set; } = 3.0;
     public double ResumeSeconds { get; set; } = 1.0;
+
+    /// <summary>When true, the detector still drives the "звук"/"тишина" status indicator but no
+    /// longer pauses/resumes the actual file recording (docs/HISTORY.md #142) — the indicator-only
+    /// behavior this app had before that change. Off by default, i.e. recording does stop on silence
+    /// by default whenever the detector itself is enabled.</summary>
+    public bool DontStopRecording { get; set; } = false;
 }

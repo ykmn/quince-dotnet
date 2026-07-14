@@ -35,21 +35,31 @@
                         <button type="button" class="dialog-tab @(Loc.Language == "en" ? "dialog-tab-active" : "")" @onclick='() => SetLanguage("en")'>EN</button>
                     </div>
                 </div>
+                @if (CanManage)
+                {
+                    <div class="menu-sep"></div>
+                    <button class="menu-item" title="@Loc["menu.newChannelTitle"]" @onclick="NewChannel">@Loc["menu.newChannel"]</button>
+                    <div class="menu-sep"></div>
+                    <button class="menu-item" title="@Loc["menu.startAllTitle"]" @onclick="StartAll">@Loc["menu.startAll"]</button>
+                    <button class="menu-item" title="@Loc["menu.stopAllTitle"]" @onclick="StopAll">@Loc["menu.stopAll"]</button>
+                }
                 <div class="menu-sep"></div>
-                <button class="menu-item" title="@Loc["menu.newChannelTitle"]" @onclick="NewChannel">@Loc["menu.newChannel"]</button>
-                <div class="menu-sep"></div>
-                <button class="menu-item" title="@Loc["menu.startAllTitle"]" @onclick="StartAll">@Loc["menu.startAll"]</button>
-                <button class="menu-item" title="@Loc["menu.stopAllTitle"]" @onclick="StopAll">@Loc["menu.stopAll"]</button>
-                <div class="menu-sep"></div>
+                <button class="menu-item" title="@Loc["menu.compactLayoutTitle"]" @onclick="ToggleCompactLayout">
+                    @(AppSettings.Current.CompactLayout ? Loc["menu.compactLayoutDisableAction"] : Loc["menu.compactLayoutEnableAction"])
+                </button>
                 <button class="menu-item" title="@Loc["menu.tpIndicatorsTitle"]" @onclick="ToggleTpIndicators">
                     @(AppSettings.Current.ShowTpIndicators ? Loc["menu.tpIndicatorsHideAction"] : Loc["menu.tpIndicatorsShowAction"])
                 </button>
-                <button class="menu-item" title="@Loc["menu.bulkEditTitle"]" @onclick="ToggleBulkSelectMode">
-                    @(UiState.BulkSelectMode ? Loc["menu.bulkEditStop"] : Loc["menu.bulkEditStart"])
-                </button>
-                <div class="menu-sep"></div>
-                <button class="menu-item" title="@Loc["menu.refreshConfigTitle"]" @onclick="RefreshConfig">@Loc["menu.refreshConfig"]</button>
-                <button class="menu-item" title="@Loc["menu.settingsTitle"]" @onclick="OpenSettings">@Loc["menu.settings"]</button>
+                @if (CanManage)
+                {
+                    <button class="menu-item" title="@Loc["menu.bulkEditTitle"]" @onclick="ToggleBulkSelectMode">
+                        @(UiState.BulkSelectMode ? Loc["menu.bulkEditStop"] : Loc["menu.bulkEditStart"])
+                    </button>
+                    <div class="menu-sep"></div>
+                    <button class="menu-item" title="@Loc["menu.refreshConfigTitle"]" @onclick="RefreshConfig">@Loc["menu.refreshConfig"]</button>
+                    <button class="menu-item" title="@Loc["menu.settingsTitle"]" @onclick="OpenSettings">@Loc["menu.settings"]</button>
+                    <button class="menu-item" title="@Loc["menu.resourceMonitorTitle"]" @onclick="OpenResourceMonitor">@Loc["menu.resourceMonitor"]</button>
+                }
 
                 @if (CurrentUser is { AuthRequired: true })
                 {
@@ -126,10 +136,17 @@
     <BulkEditDialog />
 }
 
+@if (UiState.ResourceMonitorOpen)
+{
+    <ResourceMonitorDialog OnClose="UiState.CloseResourceMonitor" />
+}
+
 <audio id="quince-playback-audio" style="display:none"></audio>
 
 @code {
     [CascadingParameter] private CurrentUserContext? CurrentUser { get; set; }
+
+    private bool CanManage => CurrentUser?.CanManage ?? true;
 
     private bool _menuOpen;
     private bool _aboutOpen;
@@ -179,6 +196,15 @@
         if (_theme == theme) return;
         _theme = theme;
         await JS.InvokeVoidAsync("quinceTheme.set", theme);
+    }
+
+    private void ToggleCompactLayout() => SetCompactLayout(!AppSettings.Current.CompactLayout);
+
+    private void SetCompactLayout(bool compact)
+    {
+        if (AppSettings.Current.CompactLayout == compact) return;
+        AppSettings.Current.CompactLayout = compact;
+        AppSettings.Save(AppSettings.Current);
     }
 
     private void ToggleTpIndicators() => SetShowTpIndicators(!AppSettings.Current.ShowTpIndicators);
@@ -315,18 +341,28 @@
 
     private void NewChannel()
     {
+        if (!CanManage) return;
         CloseMenu();
         UiState.OpenCreateChannel();
     }
 
     private void OpenSettings()
     {
+        if (!CanManage) return;
         CloseMenu();
         UiState.OpenSettings();
     }
 
+    private void OpenResourceMonitor()
+    {
+        if (!CanManage) return;
+        CloseMenu();
+        UiState.OpenResourceMonitor();
+    }
+
     private void RefreshConfig()
     {
+        if (!CanManage) return;
         CloseMenu();
         var result = ChannelManager.Reload();
         UiState.SetStatusMessage(result.Error is not null
@@ -336,12 +372,14 @@
 
     private void ToggleBulkSelectMode()
     {
+        if (!CanManage) return;
         UiState.ToggleBulkSelectMode();
         CloseMenu();
     }
 
     private void StartAll()
     {
+        if (!CanManage) return;
         CloseMenu();
         var (started, eligible) = EngineManager.StartAll();
         UiState.SetStatusMessage(Loc.T("status.startedAll", started, eligible));
@@ -349,6 +387,7 @@
 
     private void StopAll()
     {
+        if (!CanManage) return;
         CloseMenu();
         var stopped = EngineManager.StopAll();
         UiState.SetStatusMessage(Loc.T("status.stoppedAll", stopped));

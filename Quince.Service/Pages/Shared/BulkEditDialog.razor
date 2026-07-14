@@ -51,6 +51,9 @@
 
             <label><input type="checkbox" @bind="_applyResume" /> @Loc["channelEdit.resumeLabel"]</label>
             <input type="number" step="0.1" @bind="_draft.SilenceDetector.ResumeSeconds" disabled="@(!_applyResume)" title="@Loc["channelEdit.resumeTitle"]" />
+
+            <label><input type="checkbox" @bind="_applyDontStopRecording" /> @Loc["channelEdit.dontStopRecordingLabel"]</label>
+            <input type="checkbox" @bind="_draft.SilenceDetector.DontStopRecording" disabled="@(!_applyDontStopRecording)" title="@Loc["channelEdit.dontStopRecordingTitle"]" />
         </div>
 
         <div class="form-actions">
@@ -76,11 +79,12 @@
     private bool _applyThreshold;
     private bool _applyTrigger;
     private bool _applyResume;
+    private bool _applyDontStopRecording;
 
     private bool AnyFieldChecked =>
         _applyDateFolderFormat || _applyFileNameFormat || _applyFileDuration || _applyRetention ||
         _applyRecordAudio || _applyAutoStart || _applyOutputMode || _applySilenceEnabled ||
-        _applyThreshold || _applyTrigger || _applyResume;
+        _applyThreshold || _applyTrigger || _applyResume || _applyDontStopRecording;
 
     private void Close() => UiState.CloseBulkEdit();
 
@@ -116,6 +120,7 @@
                 if (_applyThreshold) patched.SilenceDetector.ThresholdDbfs = _draft.SilenceDetector.ThresholdDbfs;
                 if (_applyTrigger) patched.SilenceDetector.TriggerSeconds = _draft.SilenceDetector.TriggerSeconds;
                 if (_applyResume) patched.SilenceDetector.ResumeSeconds = _draft.SilenceDetector.ResumeSeconds;
+                if (_applyDontStopRecording) patched.SilenceDetector.DontStopRecording = _draft.SilenceDetector.DontStopRecording;
 
                 ChannelManager.Update(filename, patched);
             }

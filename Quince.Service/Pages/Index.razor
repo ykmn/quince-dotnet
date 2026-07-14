@@ -6,6 +6,7 @@
 @inject AudioEngineManager EngineManager
 @inject ChannelUiState UiState
 @inject LocalizationService Loc
+@inject AppSettingsService AppSettings
 @implements IDisposable
 
 <div class="list-toolbar">
@@ -60,7 +61,7 @@
     }
     else
     {
-        <div class="channel-list">
+        <div class="channel-list @(AppSettings.Current.CompactLayout ? "channel-list-compact" : "")">
             @foreach (var ch in FilteredChannels)
             {
                 <ChannelCard @key="ch.Filename" Config="ch" />
@@ -74,9 +75,15 @@
 @code {
     private string FilterText { get; set; } = "";
 
-    // Cycle order for the "Статус" button: null ("Все") → Running → Stopped → Error → back to null.
-    private static readonly ChannelRunState?[] RunStateCycle =
-        { null, ChannelRunState.Running, ChannelRunState.Stopped, ChannelRunState.Error };
+    // "Тишина" isn't one of ChannelRunState's 3 values (that enum deliberately mirrors only the
+    // recording-status dot, see ChannelDisplayFormatter) — it reflects the separate "Звук" indicator
+    // (EngineStatus.IsSilent) instead, so this filter gets its own page-local option type rather than
+    // extending ChannelRunState and risking that dot's classification drifting from what it actually shows.
+    private enum StatusFilterOption { All, Running, Stopped, Error, Silent }
+
+    // Cycle order for the "Статус" button: Все → Running → Stopped → Error → Тишина → back to Все.
+    private static readonly StatusFilterOption[] RunStateCycle =
+        { StatusFilterOption.All, StatusFilterOption.Running, StatusFilterOption.Stopped, StatusFilterOption.Error, StatusFilterOption.Silent };
 
     private enum MetadataFilterOption { All, Errors, Missing }
 
@@ -84,15 +91,16 @@
     private static readonly MetadataFilterOption[] MetadataFilterCycle =
         { MetadataFilterOption.All, MetadataFilterOption.Errors, MetadataFilterOption.Missing };
 
-    private ChannelRunState? _runStateFilter;
+    private StatusFilterOption _runStateFilter = StatusFilterOption.All;
     private MetadataFilterOption _metadataFilter = MetadataFilterOption.All;
 
     private string RunStateFilterValueLabel => _runStateFilter switch
     {
-        null => Loc["index.filterAll"],
-        ChannelRunState.Running => Loc["index.filterRunning"],
-        ChannelRunState.Stopped => Loc["index.filterStopped"],
-        ChannelRunState.Error => Loc["index.filterError"],
+        StatusFilterOption.All => Loc["index.filterAll"],
+        StatusFilterOption.Running => Loc["index.filterRunning"],
+        StatusFilterOption.Stopped => Loc["index.filterStopped"],
+        StatusFilterOption.Error => Loc["index.filterError"],
+        StatusFilterOption.Silent => Loc["index.filterSilent"],
         _ => "",
     };
 
@@ -107,10 +115,11 @@
     // button's own color already tells you what it's set to at a glance.
     private string RunStateFilterCssClass => _runStateFilter switch
     {
-        null => "filter-state-all",
-        ChannelRunState.Running => "filter-state-running",
-        ChannelRunState.Stopped => "filter-state-stopped",
-        ChannelRunState.Error => "filter-state-error",
+        StatusFilterOption.All => "filter-state-all",
+        StatusFilterOption.Running => "filter-state-running",
+        StatusFilterOption.Stopped => "filter-state-stopped",
+        StatusFilterOption.Error => "filter-state-error",
+        StatusFilterOption.Silent => "filter-state-silent",
         _ => "filter-state-all",
     };
 
@@ -144,9 +153,18 @@
 
     private bool MatchesRunStateFilter(ChannelConfig c)
     {
-        if (_runStateFilter is null) return true;
+        if (_runStateFilter == StatusFilterOption.All) return true;
         var status = EngineManager.GetStatus(c.Name) ?? new EngineStatus();
-        return ChannelDisplayFormatter.ClassifyRunState(status) == _runStateFilter;
+        if (_runStateFilter == StatusFilterOption.Silent) return status.IsSilent;
+
+        var runState = ChannelDisplayFormatter.ClassifyRunState(status);
+        return _runStateFilter switch
+        {
+            StatusFilterOption.Running => runState == ChannelRunState.Running,
+            StatusFilterOption.Stopped => runState == ChannelRunState.Stopped,
+            StatusFilterOption.Error => runState == ChannelRunState.Error,
+            _ => true,
+        };
     }
 
     private bool MatchesMetadataFilter(ChannelConfig c)
@@ -172,6 +190,7 @@
         ChannelManager.ChannelRemoved += OnChannelsChanged;
         UiState.Changed += OnUiStateChanged;
         Loc.Changed += OnUiStateChanged;
+        AppSettings.Changed += OnUiStateChanged;
         EngineManager.StatusUpdated += OnEngineStatusUpdated;
     }
 
@@ -193,6 +212,7 @@
         ChannelManager.ChannelRemoved -= OnChannelsChanged;
         UiState.Changed -= OnUiStateChanged;
         Loc.Changed -= OnUiStateChanged;
+        AppSettings.Changed -= OnUiStateChanged;
         EngineManager.StatusUpdated -= OnEngineStatusUpdated;
     }
 }

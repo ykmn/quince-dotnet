@@ -2,6 +2,7 @@
 @using Microsoft.Extensions.Logging
 @using Quince.Service.Configuration
 @using Quince.Service.Services
+@using Quince.Service.Services.Auth
 @using Quince.Service.Audio
 @inject AudioEngineManager EngineManager
 @inject ChannelManager ChannelManager
@@ -12,7 +13,69 @@
 @inject ILogger<ChannelCard> Log
 @implements IAsyncDisposable
 
-<div class="channel-card @StatusBorderClass">
+<div class="channel-card @(Compact ? "channel-card-compact" : StatusBorderClass)">
+@if (Compact)
+{
+    @if (AppSettings.Current.ShowTpIndicators)
+    {
+        <div class="compact-meter" title="@Loc["channelCard.levelTitle"]">
+            <div class="compact-meter-track" style="background: @(VerticalTrackGradient);"><div class="compact-meter-cover" style="height: @(CoverPercentText)%;"></div></div>
+        </div>
+    }
+    <div class="compact-main">
+        <div class="compact-top">
+            @if (UiState.BulkSelectMode)
+            {
+                <input type="checkbox" class="channel-select-checkbox" checked="@UiState.SelectedChannelFilenames.Contains(Config.Filename)"
+                       @onchange="() => UiState.ToggleChannelSelected(Config.Filename)" title="@Loc["channelCard.bulkSelectTitle"]" />
+            }
+            <span class="compact-name @StatusBorderClass" title="@Config.Name">@Config.Name</span>
+        </div>
+        <div class="compact-dots">
+            <div class="status-dot @StatusDotClass" title="@StatusDotTitle"></div>
+            @if (Config.Source.Type == "stream")
+            {
+                <div class="status-dot @MetadataDotClass" title="@MetadataDotTitle"></div>
+            }
+            @if (IsEligibleType)
+            {
+                <div class="status-dot @SoundDotClass" title="@SoundDotTitle"></div>
+            }
+        </div>
+        <div class="compact-fmts">
+            <div class="compact-fmt" title="@Loc["channelCard.sourceTitle"]"><strong>@Loc["channelCard.sourceLabelPrefix"]</strong> @InputFormatOnly</div>
+            <div class="compact-fmt" title="@Loc["channelCard.outputTitle"]"><strong>@Loc["channelCard.outputLabelPrefix"]</strong> @OutputFormatQuality</div>
+        </div>
+        <div class="compact-btns">
+            @if (CanManage)
+            {
+                <button class="btn btn-icon @(_status.IsFileRecording ? "btn-stop" : "btn-start")"
+                        title="@(_status.IsFileRecording ? Loc["channelCard.stopTitle"] : Loc["channelCard.startTitle"])"
+                        disabled="@(!IsEligibleType)"
+                        @onclick="ToggleRecording">
+                    @(_status.IsFileRecording ? "⏹" : "▶")
+                </button>
+            }
+            <button class="btn btn-icon @(IsPlayingThis ? "btn-playback-stop" : "btn-small")" title="@(IsPlayingThis ? Loc["channelCard.stopPlaybackTitle"] : Loc["channelCard.playTitle"])"
+                    disabled="@(!IsEligibleType)"
+                    @onclick="TogglePlayback">
+                @(IsPlayingThis ? "⏹" : "▶")
+            </button>
+            @if (CanManage)
+            {
+                <button class="btn btn-icon btn-small" title="@Loc["channelCard.editTitle"]" @onclick="Edit">✎</button>
+                <button class="btn btn-icon btn-small" title="@Loc["channelCard.cloneTitle"]" @onclick="Clone">⧉</button>
+            }
+            <button class="btn btn-icon btn-meters" title="@Loc["channelCard.metersTitle"]" @onclick="OpenIndicators">📊</button>
+            @if (CanManage)
+            {
+                <button class="btn btn-icon btn-delete" title="@Loc["channelCard.deleteTitle"]" @onclick="Delete">✕</button>
+            }
+        </div>
+    </div>
+}
+else
+{
     <div class="channel-row1">
         @if (UiState.BulkSelectMode)
         {
@@ -34,21 +97,30 @@
             <div class="reconnect-label">@Loc.T("channelCard.reconnectLabel", _status.ReconnectAttempt)</div>
         }
         <div class="spacer"></div>
-        <button class="btn @(_status.IsFileRecording ? "btn-stop" : "btn-start")"
-                title="@(_status.IsFileRecording ? Loc["channelCard.stopTitle"] : Loc["channelCard.startTitle"])"
-                disabled="@(!IsEligibleType)"
-                @onclick="ToggleRecording">
-            @(_status.IsFileRecording ? Loc["channelCard.stop"] : Loc["channelCard.start"])
-        </button>
+        @if (CanManage)
+        {
+            <button class="btn @(_status.IsFileRecording ? "btn-stop" : "btn-start")"
+                    title="@(_status.IsFileRecording ? Loc["channelCard.stopTitle"] : Loc["channelCard.startTitle"])"
+                    disabled="@(!IsEligibleType)"
+                    @onclick="ToggleRecording">
+                @(_status.IsFileRecording ? Loc["channelCard.stop"] : Loc["channelCard.start"])
+            </button>
+        }
         <button class="btn @(IsPlayingThis ? "btn-playback-stop" : "btn-small")" title="@(IsPlayingThis ? Loc["channelCard.stopPlaybackTitle"] : Loc["channelCard.playTitle"])"
                 disabled="@(!IsEligibleType)"
                 @onclick="TogglePlayback">
             @(IsPlayingThis ? "⏹" : "▶")
         </button>
-        <button class="btn btn-small btn-sep" title="@Loc["channelCard.editTitle"]" @onclick="Edit">✎</button>
-        <button class="btn btn-small" title="@Loc["channelCard.cloneTitle"]" @onclick="Clone">⧉</button>
+        @if (CanManage)
+        {
+            <button class="btn btn-small btn-sep" title="@Loc["channelCard.editTitle"]" @onclick="Edit">✎</button>
+            <button class="btn btn-small" title="@Loc["channelCard.cloneTitle"]" @onclick="Clone">⧉</button>
+        }
         <button class="btn btn-meters btn-sep" title="@Loc["channelCard.metersTitle"]" @onclick="OpenIndicators">@Loc["channelCard.meters"]</button>
-        <button class="btn btn-delete btn-sep" title="@Loc["channelCard.deleteTitle"]" @onclick="Delete">✕</button>
+        @if (CanManage)
+        {
+            <button class="btn btn-delete btn-sep" title="@Loc["channelCard.deleteTitle"]" @onclick="Delete">✕</button>
+        }
     </div>
     <div class="channel-info-row">
         <div class="channel-info-col">
@@ -84,11 +156,16 @@
             </div>
         }
     </div>
+}
 </div>
 
 @code {
     [Parameter, EditorRequired]
     public ChannelConfig Config { get; set; } = null!;
+
+    [CascadingParameter] private CurrentUserContext? CurrentUser { get; set; }
+
+    private bool CanManage => CurrentUser?.CanManage ?? true;
 
     private EngineStatus _status = new();
     private LevelReading _level = new();
@@ -159,6 +236,12 @@
     };
 
     private bool IsEligibleType => Config.Source.Type is "stream" or "soundcard" or "livewire";
+
+    private bool Compact => AppSettings.Current.CompactLayout;
+
+    private string InputFormatOnly => ChannelDisplayFormatter.FormatInputFormatOnly(Config);
+
+    private string VerticalTrackGradient => MeterZoneStyle.BuildTrackGradient(AppSettings.Current.MeterColors, vertical: true);
 
     private string LevelValueText => double.IsNegativeInfinity(_level.TruePeakDb)
         ? "—"
@@ -266,7 +349,7 @@
 
     private void ToggleRecording()
     {
-        if (!IsEligibleType) return;
+        if (!CanManage || !IsEligibleType) return;
         if (_status.IsFileRecording)
         {
             EngineManager.Stop(Config.Name);
@@ -288,11 +371,23 @@
         }
     }
 
-    private void Edit() => UiState.OpenEditChannel(Config);
+    private void Edit()
+    {
+        if (!CanManage) return;
+        UiState.OpenEditChannel(Config);
+    }
 
-    private void Clone() => UiState.OpenCloneChannel(Config);
+    private void Clone()
+    {
+        if (!CanManage) return;
+        UiState.OpenCloneChannel(Config);
+    }
 
-    private void Delete() => UiState.OpenDeleteChannel(Config);
+    private void Delete()
+    {
+        if (!CanManage) return;
+        UiState.OpenDeleteChannel(Config);
+    }
 
     private void OpenIndicators() => UiState.OpenIndicators(Config.Name);
 

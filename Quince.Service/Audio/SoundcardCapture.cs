@@ -53,6 +53,10 @@ public sealed class SoundcardCapture : IAudioCapture
     public StreamStatus Status => _status;
     public int ReconnectAttempt => _reconnectAttempt;
 
+    /// <summary>Always null — this backend runs in-process via NAudio's WASAPI wrapper, no subprocess
+    /// of its own to report to <see cref="Services.ProcessMonitorService"/>.</summary>
+    public int? ProcessId => null;
+
     public ChannelReader<AudioChunk> Subscribe(string consumerId)
     {
         var channel = Channel.CreateBounded<AudioChunk>(new BoundedChannelOptions(200)
