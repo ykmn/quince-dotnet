@@ -6,10 +6,17 @@ using Quince.Service.Configuration;
 namespace Quince.Service.Services.Auth;
 
 /// <summary>User-visible authentication error (wrong password, unknown user, LDAP config problem,
-/// etc.) — caught at the login endpoint and shown to the caller as-is.</summary>
+/// lockout in effect, etc.) — caught at the login endpoint and shown to the caller as-is.</summary>
 public class AuthException : Exception
 {
-    public AuthException(string message) : base(message) { }
+    /// <summary>HTTP status the login endpoint should respond with — 401 for ordinary auth failures,
+    /// 429 for a lockout/rate-limit rejection (see <see cref="LoginLockoutTracker"/>).</summary>
+    public int StatusCode { get; }
+
+    public AuthException(string message, int statusCode = 401) : base(message)
+    {
+        StatusCode = statusCode;
+    }
 }
 
 public record AuthResult(string Username, bool IsAdmin, string AuthType, string Domain = "");
@@ -25,6 +32,7 @@ public class AuthService
     private readonly YamlConfigLoader _loader;
     private readonly LdapAuthenticator _ldap;
     private readonly AppSettingsService _appSettings;
+    private readonly LoginLockoutTracker _lockout;
     private readonly ILogger<AuthService> _logger;
     private readonly string _configDir;
 
@@ -35,11 +43,12 @@ public class AuthService
     private LocalUserEntry? _ephemeralAdmin;
 
     public AuthService(YamlConfigLoader loader, LdapAuthenticator ldap, AppSettingsService appSettings,
-        ILogger<AuthService> logger, IConfiguration configuration)
+        LoginLockoutTracker lockout, ILogger<AuthService> logger, IConfiguration configuration)
     {
         _loader = loader;
         _ldap = ldap;
         _appSettings = appSettings;
+        _lockout = lockout;
         _logger = logger;
         _configDir = PathResolver.Resolve(configuration["ConfigDir"], "config");
         LoadPersistedSessions();
@@ -58,12 +67,40 @@ public class AuthService
 
     /// <summary>Priority: local accounts first, then LDAP — same as apricot2. Returns null only when
     /// auth isn't configured at all (caller should allow access); throws <see cref="AuthException"/>
-    /// with a user-facing message on any definitive failure.</summary>
-    public AuthResult? Authenticate(string username, string password)
+    /// with a user-facing message on any definitive failure — including a lockout rejection
+    /// (<see cref="AuthException.StatusCode"/> 429), checked before spending any LDAP/BCrypt work.</summary>
+    public AuthResult? Authenticate(string username, string password, string ip)
     {
         var cfg = _loader.LoadLdapConfig(_configDir);
         if (!cfg.Present) return null;
 
+        var block = _lockout.CheckBlocked(username, ip);
+        if (block.Reason == LoginBlockReason.IpBlocked)
+            throw new AuthException($"Слишком много неудачных попыток входа с этого IP-адреса. Повторите через {FormatRetryAfter(block.RetryAfter)}.", statusCode: 429);
+        if (block.Reason == LoginBlockReason.AccountLocked)
+            throw new AuthException($"Учётная запись «{username}» временно заблокирована из-за неудачных попыток входа. Повторите через {FormatRetryAfter(block.RetryAfter)}.", statusCode: 429);
+
+        try
+        {
+            var result = AuthenticateCore(username, password, cfg);
+            if (result != null) _lockout.RecordSuccess(username, ip);
+            return result;
+        }
+        catch (AuthException)
+        {
+            _lockout.RecordFailure(username, ip, cfg.Lockout);
+            throw;
+        }
+    }
+
+    private static string FormatRetryAfter(TimeSpan? retryAfter)
+    {
+        if (retryAfter is not { } ts || ts <= TimeSpan.Zero) return "некоторое время";
+        return ts.TotalMinutes >= 1 ? $"{Math.Ceiling(ts.TotalMinutes)} мин." : $"{Math.Ceiling(ts.TotalSeconds)} с.";
+    }
+
+    private AuthResult? AuthenticateCore(string username, string password, LdapConfig cfg)
+    {
         if (cfg.Local)
         {
             var localUser = LoadLocalUsers().FirstOrDefault(u =>

@@ -83,6 +83,7 @@ var fileLoggerProvider = new FileLoggerProvider(logDir, appConfig);
 builder.Services.AddSingleton(fileLoggerProvider);
 builder.Services.AddSingleton<AppSettingsService>();
 builder.Services.AddSingleton<LdapAuthenticator>();
+builder.Services.AddSingleton<LoginLockoutTracker>();
 builder.Services.AddSingleton<AuthService>();
 builder.Services.AddSingleton(sp => new LocalizationService(
     sp.GetRequiredService<AppSettingsService>(),
@@ -165,21 +166,22 @@ app.MapPost("/api/auth/login", async (HttpContext context, AuthService auth, App
     if (string.IsNullOrEmpty(username))
         return Results.Json(new { detail = "Введите имя пользователя" }, statusCode: StatusCodes.Status400BadRequest);
 
+    var ip = context.Connection.RemoteIpAddress?.ToString() ?? "";
+
     AuthResult? user;
     try
     {
-        user = auth.Authenticate(username, password);
+        user = auth.Authenticate(username, password, ip);
     }
     catch (AuthException ex)
     {
-        app.Logger.LogWarning("Вход не удался: пользователь={User} причина={Reason}", username, ex.Message);
-        return Results.Json(new { detail = ex.Message }, statusCode: StatusCodes.Status401Unauthorized);
+        app.Logger.LogWarning("Вход не удался: пользователь={User} причина={Reason} ip={Ip}", username, ex.Message, ip);
+        return Results.Json(new { detail = ex.Message }, statusCode: ex.StatusCode);
     }
 
     if (user == null)
         return Results.Json(new { detail = "Авторизация не настроена" }, statusCode: StatusCodes.Status401Unauthorized);
 
-    var ip = context.Connection.RemoteIpAddress?.ToString() ?? "";
     var token = auth.CreateSession(user.Username, user.IsAdmin, user.AuthType, user.Domain, ip);
     context.Response.Cookies.Append(AuthService.CookieName, token, new CookieOptions
     {

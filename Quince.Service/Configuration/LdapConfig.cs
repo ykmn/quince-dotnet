@@ -37,6 +37,34 @@ public class LdapConfig
 
     // Multi-domain / trusted-domains form.
     public List<LdapDomainConfig> Domains { get; set; } = new();
+
+    /// <summary>Failed-login lockout — off by default so an existing ldap.yaml without this section
+    /// behaves exactly as before.</summary>
+    public LockoutConfig Lockout { get; set; } = new();
+}
+
+/// <summary>Maps to config/ldap.yaml's `lockout:` section — failed-login throttling tracked in
+/// memory by <see cref="Services.Auth.LoginLockoutTracker"/>, applied to both local (users.yaml) and
+/// LDAP logins alike since both go through the same <see cref="Services.Auth.AuthService.Authenticate"/>
+/// funnel. Deliberately not persisted to disk (unlike sessions.yaml): the goal is slowing down a
+/// live brute-force attempt, not remembering one across a service restart.</summary>
+public class LockoutConfig
+{
+    public bool Enabled { get; set; }
+
+    /// <summary>Consecutive failed attempts for one username before that username gets locked out.</summary>
+    public int MaxAttempts { get; set; } = 5;
+
+    /// <summary>How long a locked-out username stays locked, in seconds.</summary>
+    public int LockoutSeconds { get; set; } = 300;
+
+    /// <summary>How many separate lockout events sourced from the same IP address (whether the same
+    /// username repeatedly, or several different ones) before that IP itself gets blocked outright,
+    /// regardless of username.</summary>
+    public int MaxLockoutCycles { get; set; } = 3;
+
+    /// <summary>How long an escalated IP block lasts, in seconds.</summary>
+    public int IpLockoutSeconds { get; set; } = 3600;
 }
 
 public class LdapDomainConfig
