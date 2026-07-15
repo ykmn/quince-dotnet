@@ -98,6 +98,12 @@ html, body {
     font-family: 'Nunito', -apple-system, "Segoe UI", Roboto, sans-serif;
 }
 
+/* input/button don't inherit font-family from html/body by default (falls back to the OS UI font,
+   e.g. Arial) — force inheritance globally instead of patching it on each control. */
+input, button {
+    font-family: inherit;
+}
+
 /* body is the Blazor render root (App.razor has no wrapping element) — laying it out as a flex
    column with overflow hidden keeps .topbar and the indicators panel fixed on screen and confines
    scrolling to .app-main below, instead of the whole page (including the header) scrolling. */
@@ -1501,7 +1507,6 @@ body {
     padding: 5px 8px;
     color: var(--text);
     font-size: 12px;
-    font-family: inherit;
 }
 
 .folder-browser-list {
@@ -1565,7 +1570,6 @@ body {
     border: none;
     border-radius: 6px;
     padding: 6px 8px;
-    font-family: inherit; /* buttons don't inherit font-family by default — was falling back to Arial */
     font-size: 12px;
     color: var(--text);
     cursor: pointer;
