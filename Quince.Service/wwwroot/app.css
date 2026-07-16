@@ -296,6 +296,19 @@ body {
     padding: 6px 14px;
 }
 
+.menu-user-identity {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    overflow: hidden;
+}
+
+.menu-user-icon {
+    font-size: 14px;
+    flex: 0 0 auto;
+    line-height: 1;
+}
+
 .menu-user-name {
     font-size: 12px;
     font-weight: 600;

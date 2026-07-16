@@ -21,12 +21,21 @@
 .PARAMETER Path
     Папка, с которой начинается рекурсивный поиск (обязательный параметр).
 
+.PARAMETER Filter
+    Маска имени файла (необязательный параметр, по умолчанию '*' — все файлы). Обычный
+    wildcard PowerShell, например '*.csv' или '*.yaml' — ищет и заменяет только в файлах,
+    чьё имя подходит под маску, остальные файлы не читаются и не трогаются.
+
 .EXAMPLE
     .\Find-Replace.ps1 -Find 'localhost:5000' -Replace 'localhost:8080' -Path C:\Quince\config
 
 .EXAMPLE
     # Предпросмотр без изменения файлов
     .\Find-Replace.ps1 -Find 'старое' -Replace 'новое' -Path .\config -WhatIf
+
+.EXAMPLE
+    # Только в CSV-файлах
+    .\Find-Replace.ps1 -Find '—' -Replace '-' -Path \\emg-logger3\d$\LOGGER -Filter *.csv
 #>
 
 #Requires -Version 5.1
@@ -41,7 +50,10 @@ param(
     [string] $Replace,
 
     [Parameter(Mandatory = $true)]
-    [string] $Path
+    [string] $Path,
+
+    [Parameter()]
+    [string] $Filter = '*'
 )
 
 if ($Find -eq '') {
@@ -56,7 +68,7 @@ $resolvedPath = (Resolve-Path -LiteralPath $Path).Path
 $filesChanged = 0
 $totalReplacements = 0
 
-foreach ($file in (Get-ChildItem -LiteralPath $resolvedPath -Recurse -File)) {
+foreach ($file in (Get-ChildItem -LiteralPath $resolvedPath -Recurse -File -Filter $Filter)) {
     try {
         $bytes = [System.IO.File]::ReadAllBytes($file.FullName)
         if ($bytes -contains 0) {

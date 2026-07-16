@@ -61,9 +61,10 @@ public class LdapAuthenticator
         {
             using var svcConn = Connect(host, port, useSsl);
             var svcUpn = !string.IsNullOrEmpty(upnSuffix) ? $"{secret.Username}@{upnSuffix}" : secret.Username;
+            var svcCredential = new NetworkCredential(svcUpn, secret.Password);
             try
             {
-                svcConn.Credential = new NetworkCredential(svcUpn, secret.Password);
+                svcConn.Credential = svcCredential;
                 svcConn.Bind();
             }
             catch (Exception ex) when (IsConnectivityError(ex))
@@ -86,7 +87,7 @@ public class LdapAuthenticator
             if (found == null)
                 return new LdapOutcome(LdapOutcomeTag.NotFound, Message: $"[{DomainLabel(dcfg)}] Пользователь «{shortName}» не найден.");
 
-            memberOf = ResolveGroups(svcConn, dcfg.BaseDn, found.Dn, found.PrimaryGroupId, found.DirectMemberOf);
+            memberOf = ResolveGroups(svcConn, dcfg.BaseDn, found.Dn, found.PrimaryGroupId, found.DirectMemberOf, host, port, useSsl, svcCredential);
 
             using var userConn = Connect(host, port, useSsl);
             var userUpn = !string.IsNullOrEmpty(upnSuffix) ? $"{shortName}@{upnSuffix}" : shortName;
@@ -108,9 +109,10 @@ public class LdapAuthenticator
         {
             using var conn = Connect(host, port, useSsl);
             var bindUpn = !string.IsNullOrEmpty(upnSuffix) ? $"{shortName}@{upnSuffix}" : shortName;
+            var userCredential = new NetworkCredential(bindUpn, password);
             try
             {
-                conn.Credential = new NetworkCredential(bindUpn, password);
+                conn.Credential = userCredential;
                 conn.Bind();
             }
             catch (LdapException ex) when (IsInvalidCredentials(ex))
@@ -126,7 +128,7 @@ public class LdapAuthenticator
             SearchedUser? found;
             try { found = SearchUser(conn, dcfg.BaseDn, shortName); }
             catch { found = null; } // best-effort — password already verified, just can't resolve groups
-            memberOf = found == null ? new List<string>() : ResolveGroups(conn, dcfg.BaseDn, found.Dn, found.PrimaryGroupId, found.DirectMemberOf);
+            memberOf = found == null ? new List<string>() : ResolveGroups(conn, dcfg.BaseDn, found.Dn, found.PrimaryGroupId, found.DirectMemberOf, host, port, useSsl, userCredential);
         }
 
         if (accessGroups.Count > 0 && !memberOf.Any(g => accessGroups.Contains(g, StringComparer.OrdinalIgnoreCase)))
@@ -177,13 +179,64 @@ public class LdapAuthenticator
     /// <summary>Transitive nested-group membership via the AD-specific LDAP_MATCHING_RULE_IN_CHAIN
     /// OID (resolves nested group chains server-side), plus the user's primary group (AD stores that
     /// as a RID, not a direct memberOf entry — same two-step apricot2 uses). Falls back to the
-    /// already-fetched direct memberOf list if the transitive query itself fails.</summary>
-    private static List<string> ResolveGroups(LdapConnection conn, string baseDn, string userDn, string? primaryGroupId, List<string> directMemberOf)
+    /// already-fetched direct memberOf list if the transitive query itself fails.
+    /// Ports apricot2's a5f2fd0 fix: a timed-out/dropped transitive query leaves the connection dead,
+    /// which then silently kills the primaryGroupToken lookup too (both share one connection) and
+    /// group membership resolved only through nesting or the primary group goes missing. Retries the
+    /// transitive query once against a freshly reconnected connection, and reconnects again before the
+    /// primary-group lookup whenever the fallback to direct memberOf was taken.</summary>
+    private static List<string> ResolveGroups(LdapConnection conn, string baseDn, string userDn, string? primaryGroupId,
+        List<string> directMemberOf, string host, int port, bool useSsl, NetworkCredential credential)
     {
-        var groups = TryTransitiveGroups(conn, baseDn, userDn) ?? new List<string>(directMemberOf);
-        var primaryDn = TryPrimaryGroupDn(conn, baseDn, primaryGroupId);
-        if (primaryDn != null) groups.Add(primaryDn);
-        return groups;
+        var workingConn = conn;
+        LdapConnection? spareConn = null;
+        try
+        {
+            var groups = TryTransitiveGroups(workingConn, baseDn, userDn);
+            if (groups == null)
+            {
+                spareConn = Reconnect(host, port, useSsl, credential);
+                if (spareConn != null)
+                {
+                    workingConn = spareConn;
+                    groups = TryTransitiveGroups(workingConn, baseDn, userDn);
+                }
+            }
+
+            if (groups == null)
+            {
+                groups = new List<string>(directMemberOf);
+                spareConn?.Dispose();
+                spareConn = Reconnect(host, port, useSsl, credential);
+                workingConn = spareConn ?? conn;
+            }
+
+            var primaryDn = TryPrimaryGroupDn(workingConn, baseDn, primaryGroupId);
+            if (primaryDn != null) groups.Add(primaryDn);
+            return groups;
+        }
+        finally
+        {
+            spareConn?.Dispose();
+        }
+    }
+
+    /// <summary>Opens a new connection and re-binds with the same credentials used for the original one
+    /// — the equivalent of apricot2's _reconnect() (ldap3's conn.open()/conn.bind() reopen the same
+    /// object; System.DirectoryServices.Protocols has no such reopen, so a fresh LdapConnection stands in).</summary>
+    private static LdapConnection? Reconnect(string host, int port, bool useSsl, NetworkCredential credential)
+    {
+        try
+        {
+            var conn = Connect(host, port, useSsl);
+            conn.Credential = credential;
+            conn.Bind();
+            return conn;
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     private static List<string>? TryTransitiveGroups(LdapConnection conn, string baseDn, string userDn)

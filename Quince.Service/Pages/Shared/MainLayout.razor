@@ -65,7 +65,10 @@
                 {
                     <div class="menu-sep"></div>
                     <div class="menu-user-row" title="@Loc["menu.loggedInAsTitle"]">
-                        <span class="menu-user-name">@CurrentUser.Username</span>
+                        <span class="menu-user-identity">
+                            <span class="menu-user-icon" title="@(CurrentUser.IsAdmin ? Loc["menu.roleAdminTitle"] : Loc["menu.roleUserTitle"])">@(CurrentUser.IsAdmin ? "👷" : "👤")</span>
+                            <span class="menu-user-name">@CurrentUser.Username</span>
+                        </span>
                         <button class="menu-item" title="@Loc["menu.logoutTitle"]" @onclick="Logout">@Loc["menu.logout"]</button>
                     </div>
                 }

@@ -16,8 +16,9 @@ namespace Quince.Service.Audio;
 public sealed class HlsMetadataReader : IMetadataReader
 {
     private static readonly TimeSpan DiscoveryTimeout = TimeSpan.FromSeconds(5);
-    private static readonly TimeSpan PollInterval = TimeSpan.FromSeconds(5);
     // Not const/readonly so tests can shrink these instead of waiting through the real cadence.
+    internal static TimeSpan PollInterval = TimeSpan.FromSeconds(5);
+    internal static TimeSpan JsonPollTimeout = TimeSpan.FromSeconds(5);
     internal static int DiscoveryAttempts = 3;
     internal static TimeSpan DiscoveryRetryDelay = TimeSpan.FromSeconds(3);
     internal static TimeSpan BackgroundResolveInterval = TimeSpan.FromMinutes(2);
@@ -253,7 +254,7 @@ public sealed class HlsMetadataReader : IMetadataReader
         // handshake from scratch every time (no session/connection reuse), which under several
         // channels polling on roughly the same 5s cadence at once was observed to stall unrelated
         // channels' audio capture for 1-2+ seconds (see docs/HISTORY.md #54/#55).
-        using var client = MetadataHttp.CreateClient(_allowInvalidSsl, TimeSpan.FromSeconds(5));
+        using var client = MetadataHttp.CreateClient(_allowInvalidSsl, JsonPollTimeout);
 
         while (!ct.IsCancellationRequested)
         {
@@ -264,7 +265,15 @@ public sealed class HlsMetadataReader : IMetadataReader
                 if (result != null)
                     FireIfChanged(result.Value.Artist, result.Value.Title);
             }
-            catch (OperationCanceledException)
+            // The filter matters: HttpClient's own request timeout also throws
+            // OperationCanceledException (a TaskCanceledException), completely independently of
+            // `ct`. An unfiltered catch here used to treat that exactly like a deliberate Stop()
+            // and `break` out of the loop — silently ending this reader's task forever, with no
+            // log line, no more CSV rows, and no recovery short of a full channel/service restart.
+            // Confirmed live: Rock FM/Relax FM (both slow HLS JSON metadata hosts) went dark for
+            // hours this way while every other channel kept polling normally. A timeout must be
+            // treated like any other transient fetch failure below, not as cancellation.
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
             {
                 break;
             }

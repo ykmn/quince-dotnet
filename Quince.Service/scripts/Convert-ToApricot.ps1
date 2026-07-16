@@ -95,16 +95,21 @@ function ConvertFrom-YamlSimple {
         if ($trimmed.StartsWith('- ')) { continue }
         if ($trimmed -notmatch '^([^:]+):\s*(.*)$') { continue }
 
-        $key   = $Matches[1].Trim()
-        $value = $Matches[2].Trim() -replace '^"(.*)"$', '$1' `
-                                     -replace "^'(.*)'$", '$1'
+        $key      = $Matches[1].Trim()
+        # Decide nested-block-vs-scalar from the RAW (still-quoted) text: an explicitly
+        # quoted empty string like metadata_url: '' must stay a scalar "", not be mistaken
+        # for a "key:" nested-block header (which has truly nothing after the colon) once
+        # the quotes are stripped below — both look like '' after stripping otherwise.
+        $rawValue = $Matches[2].Trim()
+        $value    = $rawValue -replace '^"(.*)"$', '$1' `
+                               -replace "^'(.*)'$", '$1'
 
         while ($stack.Count -gt 1 -and $stack.Peek().Indent -ge $indent) {
             $null = $stack.Pop()
         }
         $parent = $stack.Peek().Dict
 
-        if ($value -eq '') {
+        if ($rawValue -eq '') {
             $child = [ordered]@{}
             $parent[$key] = $child
             $stack.Push([pscustomobject]@{ Dict = $child; Indent = $indent })
@@ -137,7 +142,8 @@ function Get-SafeId {
 function Format-YamlString {
     param([string] $Value)
     if ($Value -match '[:#\[\]{}&*!|>''"%@`]' -or $Value -match '^\s' -or $Value -match '\s$') {
-        return '"' + ($Value -replace '"', '\"') + '"'
+        $escaped = $Value -replace '\\', '\\\\' -replace '"', '\"'
+        return '"' + $escaped + '"'
     }
     return $Value
 }
@@ -238,7 +244,10 @@ foreach ($file in $files) {
     # Apply filter
     if ($Filter -ne '*' -and $name -notlike "*$Filter*") { $skipped++; continue }
 
-    $id          = Get-SafeId -Name $name
+    # Айва channel names carry a trailing "(Россия)" / "(Москва)" city/country qualifier for
+    # display purposes; Abricot ids should stay brand-only (business_fm, not business_fm_rossiya).
+    $idSource    = ($name -replace '\s*\([^)]*\)\s*$', '').Trim()
+    $id          = Get-SafeId -Name $idSource
     $savePath    = Get-ConfigValue $config 'save_path'
     $dateFmt     = Get-ConfigValue $config 'date_folder_format' 'YYYY-MM-DD'
     $timeFmt     = Get-ConfigValue $config 'file_name_format'   'hh-mm-ss'
@@ -251,15 +260,18 @@ foreach ($file in $files) {
         $metadataUrl = Get-ConfigValue $src 'metadata_url'
     }
 
+    # input_format.sample_rate is read first as a fallback, but output_format.sample_rate
+    # (the rate Айва actually writes to the saved audio file) must win — Abricot reads the
+    # file from disk, so it's output_format's rate that matters, not the input stream's.
+    if ($config.Contains('input_format') -and $config['input_format'] -is [System.Collections.IDictionary]) {
+        $inp = $config['input_format']
+        $sampleRate = Get-ConfigValue $inp 'sample_rate' $sampleRate
+    }
+
     if ($config.Contains('output_format') -and $config['output_format'] -is [System.Collections.IDictionary]) {
         $out    = $config['output_format']
         $fileExt    = Get-ConfigValue $out 'file_format' $fileExt
         $sampleRate = Get-ConfigValue $out 'sample_rate' $sampleRate
-    }
-
-    if ($config.Contains('input_format') -and $config['input_format'] -is [System.Collections.IDictionary]) {
-        $inp = $config['input_format']
-        $sampleRate = Get-ConfigValue $inp 'sample_rate' $sampleRate
     }
 
     # Extract SMB path from save_path last segment

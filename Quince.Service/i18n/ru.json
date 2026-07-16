@@ -25,6 +25,8 @@
   "menu.readmeTitle": "Открыть README.md текущей установки в отдельном окне",
   "menu.versionTitle": "Текущая версия приложения",
   "menu.loggedInAsTitle": "Вы вошли под этим пользователем",
+  "menu.roleAdminTitle": "Администратор",
+  "menu.roleUserTitle": "Обычный пользователь",
   "menu.logout": "Выход",
   "menu.logoutTitle": "Завершить сеанс и вернуться на страницу входа",
   "menu.about": "ℹ️ О программе…",

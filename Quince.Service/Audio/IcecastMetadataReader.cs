@@ -15,7 +15,11 @@ public sealed class IcecastMetadataReader : IMetadataReader
 {
     private static readonly int[] BackoffSequence = { 1, 2, 4, 8, 16, 30 };
     private static readonly Regex StreamTitleRegex = new(@"StreamTitle='([^']*)'", RegexOptions.Compiled);
-    private static readonly Regex ArtistTitleRegex = new(@"^(.*?)\s+-\s+(.*)", RegexOptions.Compiled | RegexOptions.Singleline);
+    // Some sources send "Artist — Title" with an em dash instead of a plain hyphen — recognized
+    // here too so it still splits into (Artist, Title) instead of landing whole in ElemName.
+    // Everywhere this app re-joins an already-split artist/title (ChannelEngine's "Метаданные:"
+    // log line, HlsMetadataReader.FireIfChanged) always uses a plain " - ", never an em dash.
+    private static readonly Regex ArtistTitleRegex = new(@"^(.*?)\s+[-—]\s+(.*)", RegexOptions.Compiled | RegexOptions.Singleline);
 
     private readonly string _url;
     private readonly bool _allowInvalidSsl;
@@ -56,7 +60,8 @@ public sealed class IcecastMetadataReader : IMetadataReader
         _task = null;
     }
 
-    /// <summary>Split "Artist - Title" on the first " - " separator. No match → ("", raw.Trim()).</summary>
+    /// <summary>Split "Artist - Title" (or "Artist — Title") on the first " - "/" — " separator.
+    /// No match → ("", raw.Trim()).</summary>
     internal static (string Artist, string Title) ParseMetadataString(string raw)
     {
         if (string.IsNullOrWhiteSpace(raw)) return ("", "");
@@ -111,7 +116,12 @@ public sealed class IcecastMetadataReader : IMetadataReader
                 // A clean EOF (stream ended) falls through here and reconnects immediately,
                 // same as the legacy reader's outer while loop.
             }
-            catch (OperationCanceledException)
+            // The filter matters: HttpClient's own request timeout throws OperationCanceledException
+            // (a TaskCanceledException) completely independently of `ct`. An unfiltered catch here
+            // would treat that exactly like a deliberate Stop() and break out of the loop forever —
+            // see the identical bug fixed in HlsMetadataReader.JsonPollLoopAsync, confirmed live to
+            // silently kill metadata for hours with no log line and no recovery short of a restart.
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
             {
                 break;
             }

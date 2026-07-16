@@ -25,6 +25,8 @@
   "menu.readmeTitle": "Open this installation's README.md in a separate window",
   "menu.versionTitle": "Current application version",
   "menu.loggedInAsTitle": "You are logged in as this user",
+  "menu.roleAdminTitle": "Administrator",
+  "menu.roleUserTitle": "Regular user",
   "menu.logout": "Logout",
   "menu.logoutTitle": "End the session and return to the login page",
   "menu.about": "ℹ️ About…",
