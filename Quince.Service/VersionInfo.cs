@@ -2,5 +2,5 @@ namespace Quince.Service;
 
 public static class VersionInfo
 {
-    public const string Version = "1.00.056";
+    public const string Version = "1.00.057";
 }
