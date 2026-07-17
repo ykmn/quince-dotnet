@@ -727,14 +727,18 @@
     /// Creates the folder if it doesn't exist yet (same as always — AudioWriter would create it lazily
     /// anyway) and only surfaces an error when the underlying disk/network share is genuinely
     /// unavailable. Bounded with a timeout so a dead UNC path can't hang the dialog for the ~20-30s
-    /// Windows sometimes takes to give up on a network path.
+    /// Windows sometimes takes to give up on a network path. Matches <see cref="RefreshDiskUsageAsync"/>'s
+    /// budget (was 5s here vs 8s there — confirmed live on a real busy save disk that a single
+    /// <see cref="Directory.CreateDirectory"/> call can occasionally take longer than 5s even though
+    /// the path is genuinely fine, giving a false "недоступна" error that a same-second manual
+    /// "Обновить" — going through the more generous 8s budget — didn't hit).
     /// </summary>
     private async Task<bool> ValidateSavePathAsync(string path)
     {
         try
         {
             var task = Task.Run(() => Directory.CreateDirectory(path));
-            var completed = await Task.WhenAny(task, Task.Delay(TimeSpan.FromSeconds(5)));
+            var completed = await Task.WhenAny(task, Task.Delay(TimeSpan.FromSeconds(10)));
             if (completed != task)
             {
                 _error = Loc["channelEdit.errorSavePathTimeout"];
