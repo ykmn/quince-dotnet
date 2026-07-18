@@ -175,7 +175,7 @@ app.MapPost("/api/auth/login", async (HttpContext context, AuthService auth, App
     }
     catch (AuthException ex)
     {
-        app.Logger.LogWarning("Вход не удался: пользователь={User} причина={Reason} ip={Ip}", username, ex.Message, ip);
+        app.Logger.LogWarning("Вход не удался: пользователь={User} причина={Reason} ip={Ip}", username, ex.LogDetail, ip);
         return Results.Json(new { detail = ex.Message }, statusCode: ex.StatusCode);
     }
 

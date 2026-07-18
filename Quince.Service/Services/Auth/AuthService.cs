@@ -13,9 +13,16 @@ public class AuthException : Exception
     /// 429 for a lockout/rate-limit rejection (see <see cref="LoginLockoutTracker"/>).</summary>
     public int StatusCode { get; }
 
-    public AuthException(string message, int statusCode = 401) : base(message)
+    /// <summary>What actually went wrong, for the server log only — may be more specific than
+    /// <see cref="Exception.Message"/> (e.g. "unknown username" vs "wrong password"), since the
+    /// message shown to the caller is deliberately generic to avoid letting a failed login reveal
+    /// whether the username exists.</summary>
+    public string LogDetail { get; }
+
+    public AuthException(string message, int statusCode = 401, string? logDetail = null) : base(message)
     {
         StatusCode = statusCode;
+        LogDetail = logDetail ?? message;
     }
 }
 
@@ -42,6 +49,14 @@ public class AuthService
     private readonly object _ephemeralLock = new();
     private LocalUserEntry? _ephemeralAdmin;
 
+    // ldap.yaml is re-checked on every incoming request (see AuthRequired / Program.cs middleware),
+    // so cache the parsed config and only re-read+re-parse the file when its mtime changes — a plain
+    // File.Exists/GetLastWriteTimeUtc stat is far cheaper than a full read+YAML-deserialize per request.
+    private readonly object _ldapConfigLock = new();
+    private DateTime? _ldapConfigMtime;
+    private LdapConfig? _ldapConfigCache;
+    private bool _ldapConfigCacheValid;
+
     public AuthService(YamlConfigLoader loader, LdapAuthenticator ldap, AppSettingsService appSettings,
         LoginLockoutTracker lockout, ILogger<AuthService> logger, IConfiguration configuration)
     {
@@ -60,8 +75,30 @@ public class AuthService
     {
         get
         {
-            var cfg = _loader.LoadLdapConfig(_configDir);
+            var cfg = GetLdapConfig();
             return cfg.Present && (cfg.Local || cfg.Ldap);
+        }
+    }
+
+    /// <summary>Cached wrapper around <see cref="YamlConfigLoader.LoadLdapConfig"/> — this middleware
+    /// checks <see cref="AuthRequired"/> on every incoming request, so re-reading and re-parsing
+    /// ldap.yaml from disk that often would be wasted work. Re-parses only when the file's mtime
+    /// changes (still lets an admin hand-edit ldap.yaml and have it take effect without a restart).</summary>
+    private LdapConfig GetLdapConfig()
+    {
+        var path = Path.Combine(_configDir, "ldap.yaml");
+        DateTime? mtime = File.Exists(path) ? File.GetLastWriteTimeUtc(path) : null;
+
+        lock (_ldapConfigLock)
+        {
+            if (_ldapConfigCacheValid && _ldapConfigMtime == mtime)
+                return _ldapConfigCache!;
+
+            var cfg = _loader.LoadLdapConfig(_configDir);
+            _ldapConfigMtime = mtime;
+            _ldapConfigCache = cfg;
+            _ldapConfigCacheValid = true;
+            return cfg;
         }
     }
 
@@ -71,7 +108,7 @@ public class AuthService
     /// (<see cref="AuthException.StatusCode"/> 429), checked before spending any LDAP/BCrypt work.</summary>
     public AuthResult? Authenticate(string username, string password, string ip)
     {
-        var cfg = _loader.LoadLdapConfig(_configDir);
+        var cfg = GetLdapConfig();
         if (!cfg.Present) return null;
 
         var block = _lockout.CheckBlocked(username, ip);
@@ -99,19 +136,29 @@ public class AuthService
         return ts.TotalMinutes >= 1 ? $"{Math.Ceiling(ts.TotalMinutes)} мин." : $"{Math.Ceiling(ts.TotalSeconds)} с.";
     }
 
+    /// <summary>Shown to the caller for "unknown username" and "wrong password" alike, for both local
+    /// and LDAP accounts — deliberately vague so a failed login can't be used to enumerate valid
+    /// usernames. The specific reason still goes to <see cref="AuthException.LogDetail"/> for the
+    /// server log.</summary>
+    private const string InvalidCredentialsMessage = "Неверный логин или пароль.";
+
     private AuthResult? AuthenticateCore(string username, string password, LdapConfig cfg)
     {
         if (cfg.Local)
         {
             var localUser = LoadLocalUsers().FirstOrDefault(u =>
                 string.Equals(u.Username, username, StringComparison.OrdinalIgnoreCase));
+            // Always run BCrypt — against the real hash if the user exists, against a fixed dummy
+            // hash otherwise — so "no such user" and "wrong password" take about the same time and
+            // can't be told apart by a timing side-channel either.
+            var passwordOk = PasswordHasher.Verify(password, localUser?.PasswordHash ?? PasswordHasher.DummyHash);
             if (localUser != null)
             {
-                if (PasswordHasher.Verify(password, localUser.PasswordHash))
+                if (passwordOk)
                     return new AuthResult(username, localUser.IsAdmin, "local");
                 // Username matched locally but the password didn't — don't fall through to LDAP for
                 // the same username (same rule apricot2 applies).
-                throw new AuthException("Неверный пароль.");
+                throw new AuthException(InvalidCredentialsMessage, logDetail: $"неверный пароль для локального пользователя «{username}»");
             }
         }
 
@@ -120,10 +167,14 @@ public class AuthService
             var outcome = _ldap.Authenticate(username, password, cfg, id => ResolveSecret(id));
             if (outcome.Tag == LdapOutcomeTag.Success)
                 return new AuthResult(outcome.Username, outcome.IsAdmin, "ldap", outcome.Domain);
+            if (outcome.Tag is LdapOutcomeTag.NotFound or LdapOutcomeTag.WrongPassword)
+                throw new AuthException(InvalidCredentialsMessage, logDetail: outcome.Message);
+            // ConnError/CfgError/NoAccess are operational problems, not "wrong credentials" — the
+            // specific message is still useful (and doesn't leak account existence) so show it as-is.
             throw new AuthException(outcome.Message);
         }
 
-        throw new AuthException($"Пользователь «{username}» не найден. Проверьте имя пользователя или обратитесь к администратору.");
+        throw new AuthException(InvalidCredentialsMessage, logDetail: $"локальный пользователь «{username}» не найден, LDAP не настроен");
     }
 
     private List<LocalUserEntry> LoadLocalUsers()
