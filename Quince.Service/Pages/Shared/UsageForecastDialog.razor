@@ -1,0 +1,235 @@
+@using System.Globalization
+@using Quince.Service.Configuration
+@using Quince.Service.Services
+@inject ChannelManager ChannelManager
+@inject LocalizationService Loc
+
+<div class="modal-overlay" @onclick="Close">
+    <div class="modal-box modal-box-wide modal-box-xwide" @onclick:stopPropagation="true">
+        <h2>@Loc["usageForecast.title"]</h2>
+        <p class="form-hint-neutral">@Loc["usageForecast.hint"]</p>
+
+        @if (_rows.Count == 0)
+        {
+            <p class="form-hint-neutral">@Loc["usageForecast.noChannels"]</p>
+        }
+        else
+        {
+            <div class="usage-forecast-summary">
+                <div class="usage-forecast-summary-row">
+                    <span class="usage-forecast-summary-label">@Loc["usageForecast.title"]</span>
+                    <span class="usage-forecast-summary-figs">
+                        @SummaryText
+                        @if (ScanningCount > 0)
+                        {
+                            <text> · @Loc.T("usageForecast.summaryScanningCount", ScanningCount, _rows.Count)</text>
+                        }
+                    </span>
+                </div>
+                <div class="disk-usage-track">
+                    <div class="disk-usage-fill @SummaryZoneClass" style="width: @(SummaryFillPercentText)%;"></div>
+                </div>
+                @if (_unlimitedRetentionNames.Any())
+                {
+                    <div class="usage-forecast-caveat">@Loc.T("usageForecast.caveatUnlimited", string.Join(", ", _unlimitedRetentionNames))</div>
+                }
+            </div>
+
+            <div class="usage-forecast-toolbar">
+                <button type="button" class="btn btn-small" @onclick="RefreshAllAsync" disabled="@(ScanningCount > 0)"
+                        title="@Loc["usageForecast.refreshAllTitle"]">
+                    @Loc["usageForecast.refreshAll"]
+                </button>
+            </div>
+
+            <div class="usage-forecast-table-wrap">
+                <table class="usage-forecast-table">
+                    <thead>
+                        <tr>
+                            <th>@Loc["usageForecast.columnChannel"]</th>
+                            <th>@Loc["usageForecast.columnPath"]</th>
+                            <th>@Loc["usageForecast.columnRetention"]</th>
+                            <th>@Loc["usageForecast.columnUsed"]</th>
+                            <th>@Loc["usageForecast.columnProjected"]</th>
+                            <th>@Loc["usageForecast.columnFill"]</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var row in _rows)
+                        {
+                            <tr>
+                                <td>@row.Config.Name</td>
+                                <td class="usage-forecast-path">@row.Config.SavePath</td>
+                                <td>
+                                    @if (row.Config.RetentionDays <= 0)
+                                    {
+                                        <span class="usage-forecast-pill usage-forecast-pill-unlimited">@Loc["usageForecast.retentionUnlimited"]</span>
+                                    }
+                                    else
+                                    {
+                                        @Loc.T("usageForecast.retentionDays", row.Config.RetentionDays)
+                                    }
+                                </td>
+                                <td>@UsedText(row)</td>
+                                <td>@ProjectedText(row)</td>
+                                <td>@FillCell(row)</td>
+                                <td>
+                                    <button type="button" class="usage-forecast-row-refresh" disabled="@row.Scanning"
+                                            title="@Loc["usageForecast.refreshRowTitle"]" @onclick="() => RefreshRowAsync(row)">
+                                        🔄
+                                    </button>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+
+        <div class="form-actions">
+            <button class="btn btn-small" @onclick="Close">@Loc["common.close"]</button>
+        </div>
+    </div>
+</div>
+
+@code {
+    [Parameter] public EventCallback OnClose { get; set; }
+
+    private sealed class ForecastRow
+    {
+        public required ChannelConfig Config { get; init; }
+        public bool Scanning { get; set; } = true;
+        public long? UsedBytes { get; set; }
+        public bool TimedOut { get; set; }
+        public string? Error { get; set; }
+    }
+
+    private static readonly TimeSpan ScanTimeout = TimeSpan.FromSeconds(20);
+
+    private List<ForecastRow> _rows = new();
+
+    protected override void OnInitialized()
+    {
+        _rows = ChannelManager.Channels
+            .OrderBy(c => c.Name, StringComparer.OrdinalIgnoreCase)
+            .Select(c => new ForecastRow { Config = c })
+            .ToList();
+        _ = RefreshAllAsync();
+    }
+
+    private int ScanningCount => _rows.Count(r => r.Scanning);
+
+    /// <summary>Kicks off every row's scan at once — <see cref="DiskUsageEstimator.ScanFolderSizeAsync"/>
+    /// runs the actual directory walk on the thread pool via <c>Task.Run</c>, so this gets real
+    /// parallelism across channels rather than scanning one folder at a time (which could otherwise
+    /// take minutes across a few dozen channels on a busy/slow save disk).</summary>
+    private async Task RefreshAllAsync() => await Task.WhenAll(_rows.Select(RefreshRowAsync));
+
+    private async Task RefreshRowAsync(ForecastRow row)
+    {
+        row.Scanning = true;
+        row.TimedOut = false;
+        row.Error = null;
+        StateHasChanged();
+
+        var result = await DiskUsageEstimator.ScanFolderSizeAsync(row.Config.SavePath, ScanTimeout);
+        row.Scanning = false;
+        if (result.TimedOut) row.TimedOut = true;
+        else if (result.Error is not null) row.Error = result.Error;
+        else row.UsedBytes = result.Bytes;
+        StateHasChanged();
+    }
+
+    private static string FormatGb(long bytes) => (bytes / (1024.0 * 1024 * 1024)).ToString("F2", CultureInfo.InvariantCulture);
+
+    private string UsedText(ForecastRow row)
+    {
+        if (row.Scanning) return Loc["usageForecast.scanning"];
+        if (row.TimedOut) return Loc["usageForecast.scanTimeout"];
+        if (row.Error is not null) return Loc.T("usageForecast.scanError", row.Error);
+        return row.UsedBytes is long used ? Loc.T("usageForecast.gb", FormatGb(used)) : "—";
+    }
+
+    private long? ProjectedBytes(ForecastRow row) => DiskUsageEstimator.EstimateTotalBytes(row.Config);
+
+    private string ProjectedText(ForecastRow row) =>
+        ProjectedBytes(row) is long total ? Loc.T("usageForecast.gb", FormatGb(total)) : Loc["usageForecast.notDetermined"];
+
+    private static string ZoneClass(double percent) => percent switch
+    {
+        >= 90 => "disk-usage-fill-danger",
+        >= 70 => "disk-usage-fill-warn",
+        _ => "disk-usage-fill-ok",
+    };
+
+    private RenderFragment FillCell(ForecastRow row) => builder =>
+    {
+        if (row.UsedBytes is not long used || ProjectedBytes(row) is not long total || total <= 0)
+        {
+            builder.AddContent(0, row.Scanning || row.TimedOut || row.Error is not null ? "" : Loc["usageForecast.notDetermined"]);
+            return;
+        }
+
+        var percent = Math.Clamp(used / (double)total * 100.0, 0, 100);
+        var percentText = percent.ToString("F0", CultureInfo.InvariantCulture);
+        builder.OpenElement(0, "div");
+        builder.AddAttribute(1, "class", "usage-forecast-cell-bar");
+        builder.OpenElement(2, "div");
+        builder.AddAttribute(3, "class", "usage-forecast-mini-track");
+        builder.OpenElement(4, "div");
+        builder.AddAttribute(5, "class", $"usage-forecast-mini-fill {ZoneClass(percent)}");
+        builder.AddAttribute(6, "style", $"width: {percentText}%;");
+        builder.CloseElement();
+        builder.CloseElement();
+        builder.OpenElement(7, "span");
+        builder.AddAttribute(8, "class", "usage-forecast-mini-pct");
+        builder.AddContent(9, $"{percentText}%");
+        builder.CloseElement();
+        builder.CloseElement();
+    };
+
+    /// <summary>Channels with unlimited retention (<see cref="ChannelConfig.RetentionDays"/> &lt;= 0)
+    /// have no projected upper bound (see <see cref="DiskUsageEstimator.EstimateTotalBytes"/>), so they're
+    /// left out of <see cref="TotalProjectedBytes"/> entirely rather than silently treated as zero —
+    /// that would understate the real projected total for every other channel sharing the summary bar.
+    /// Their current usage still counts toward <see cref="TotalUsedBytes"/> since that part is a plain
+    /// fact, not a projection.</summary>
+    private IEnumerable<string> _unlimitedRetentionNames => _rows.Where(r => r.Config.RetentionDays <= 0).Select(r => r.Config.Name);
+
+    private long TotalUsedBytes => _rows.Sum(r => r.UsedBytes ?? 0);
+
+    private long? TotalProjectedBytes
+    {
+        get
+        {
+            var bounded = _rows.Where(r => r.Config.RetentionDays > 0).ToList();
+            return bounded.Count == 0 ? null : bounded.Sum(r => ProjectedBytes(r) ?? 0);
+        }
+    }
+
+    private double SummaryFillPercent
+    {
+        get
+        {
+            if (TotalProjectedBytes is not long total || total <= 0) return 0;
+            return Math.Clamp(TotalUsedBytes / (double)total * 100.0, 0, 100);
+        }
+    }
+
+    private string SummaryFillPercentText => SummaryFillPercent.ToString("F2", CultureInfo.InvariantCulture);
+    private string SummaryZoneClass => ZoneClass(SummaryFillPercent);
+
+    private string SummaryText
+    {
+        get
+        {
+            var usedText = Loc.T("usageForecast.gb", FormatGb(TotalUsedBytes));
+            return TotalProjectedBytes is long total
+                ? Loc.T("usageForecast.summaryUsedOfProjected", usedText, Loc.T("usageForecast.gb", FormatGb(total)))
+                : Loc.T("usageForecast.summaryNoProjected", usedText);
+        }
+    }
+
+    private void Close() => OnClose.InvokeAsync();
+}

@@ -1688,3 +1688,157 @@ body {
     border-bottom: none;
     border-top: 2px solid var(--border-strong);
 }
+
+/* ── Usage forecast dialog (admin-only burger-menu item) ──── */
+
+/* Wider than the standard .modal-box-wide (640px) — the per-channel table has six data columns
+   plus a save-path column that's routinely a long UNC or nested local path, so 640px left every
+   row scrolling horizontally even for realistic paths. Placed after .modal-box-wide's own width
+   rule in the cascade so it wins on the shared `width` property at equal specificity. */
+.modal-box-xwide {
+    width: 920px;
+}
+
+.usage-forecast-summary {
+    background: var(--surface-alt);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px 14px;
+    margin: 12px 0;
+}
+
+.usage-forecast-summary-row {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 8px;
+    font-size: 13px;
+}
+
+.usage-forecast-summary-label {
+    font-weight: 700;
+    color: var(--text-secondary);
+}
+
+.usage-forecast-summary-figs {
+    color: var(--text-secondary);
+    text-align: right;
+}
+
+.usage-forecast-caveat {
+    margin-top: 8px;
+    font-size: 11.5px;
+    color: var(--text-faint);
+    border-top: 1px dashed var(--border-strong);
+    padding-top: 6px;
+}
+
+.usage-forecast-toolbar {
+    display: flex;
+    justify-content: flex-end;
+    margin-bottom: 8px;
+}
+
+.usage-forecast-table-wrap {
+    max-height: 360px;
+    overflow-y: auto;
+    overflow-x: auto;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    margin-bottom: 12px;
+}
+
+.usage-forecast-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+}
+
+.usage-forecast-table th,
+.usage-forecast-table td {
+    padding: 6px 8px;
+    text-align: left;
+    color: var(--text);
+    border-bottom: 1px solid var(--border);
+    white-space: nowrap;
+}
+
+.usage-forecast-table th {
+    background: var(--surface-alt);
+    position: sticky;
+    top: 0;
+    color: var(--text-secondary);
+}
+
+/* Qualified with the table-cell selector to outrank the generic ".usage-forecast-table td"
+   nowrap rule above (equal class count, but this one also matches the element type) — otherwise
+   long UNC/nested paths force the whole table into horizontal scroll instead of wrapping within
+   their own column. */
+.usage-forecast-table td.usage-forecast-path {
+    max-width: 320px;
+    color: var(--text-muted);
+    font-family: monospace;
+    font-size: 11px;
+    white-space: normal;
+    word-break: break-all;
+}
+
+.usage-forecast-pill {
+    display: inline-flex;
+    font-size: 11px;
+    font-weight: 700;
+    padding: 2px 7px;
+    border-radius: 999px;
+}
+
+.usage-forecast-pill-unlimited {
+    background: var(--quince-yellow-bg);
+    color: var(--quince-yellow-text);
+    border: 1px solid var(--quince-yellow-border);
+}
+
+.usage-forecast-row-refresh {
+    border: 1px solid var(--border-strong);
+    background: var(--surface);
+    border-radius: 6px;
+    padding: 2px 6px;
+    font-size: 12px;
+    cursor: pointer;
+    line-height: 1.4;
+}
+
+.usage-forecast-row-refresh:hover {
+    background: var(--surface-hover);
+}
+
+.usage-forecast-row-refresh:disabled {
+    opacity: 0.5;
+    cursor: default;
+}
+
+.usage-forecast-cell-bar {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 110px;
+}
+
+.usage-forecast-mini-track {
+    flex: 1;
+    height: 8px;
+    border-radius: 4px;
+    background: var(--track-bg);
+    overflow: hidden;
+}
+
+.usage-forecast-mini-fill {
+    height: 100%;
+}
+
+.usage-forecast-mini-pct {
+    width: 34px;
+    text-align: right;
+    color: var(--text-secondary);
+    font-variant-numeric: tabular-nums;
+}

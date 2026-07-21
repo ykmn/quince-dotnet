@@ -4,8 +4,15 @@ using Xunit;
 
 namespace Quince.Service.Tests.Services;
 
-public class DiskUsageEstimatorTests
+public class DiskUsageEstimatorTests : IDisposable
 {
+    private readonly string _tempDir = Path.Combine(Path.GetTempPath(), "quince-disk-usage-tests-" + Guid.NewGuid());
+
+    public void Dispose()
+    {
+        if (Directory.Exists(_tempDir)) Directory.Delete(_tempDir, recursive: true);
+    }
+
     private static ChannelConfig CustomMp3(int bitrateKbps, int retentionDays) => new()
     {
         Source = new SourceConfig { Type = "stream", StreamType = "icecast" },
@@ -77,5 +84,32 @@ public class DiskUsageEstimatorTests
         var config = CustomMp3(bitrateKbps: 96, retentionDays: retentionDays);
 
         Assert.Null(DiskUsageEstimator.EstimateTotalBytes(config));
+    }
+
+    [Fact]
+    public async Task ScanFolderSizeAsync_SumsFilesRecursively()
+    {
+        var nested = Path.Combine(_tempDir, "2026-07-21");
+        Directory.CreateDirectory(nested);
+        await File.WriteAllBytesAsync(Path.Combine(_tempDir, "a.mp3"), new byte[100]);
+        await File.WriteAllBytesAsync(Path.Combine(nested, "b.mp3"), new byte[250]);
+
+        var result = await DiskUsageEstimator.ScanFolderSizeAsync(_tempDir, TimeSpan.FromSeconds(5));
+
+        Assert.False(result.TimedOut);
+        Assert.Null(result.Error);
+        Assert.Equal(350, result.Bytes);
+    }
+
+    [Fact]
+    public async Task ScanFolderSizeAsync_MissingFolder_ReturnsZeroRatherThanError()
+    {
+        // Matches the channel edit dialog's "not created yet" case — a save path that hasn't been
+        // written to should read as "0 bytes used", not surface as a scan failure.
+        var result = await DiskUsageEstimator.ScanFolderSizeAsync(_tempDir, TimeSpan.FromSeconds(5));
+
+        Assert.False(result.TimedOut);
+        Assert.Null(result.Error);
+        Assert.Equal(0, result.Bytes);
     }
 }

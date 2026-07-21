@@ -40,4 +40,41 @@ public static class DiskUsageEstimator
         if (config.RetentionDays <= 0) return null;
         return EstimateBytesPerSecond(config) * config.RetentionDays * 86400L;
     }
+
+    /// <summary>Recursively sums every file under <paramref name="path"/>, bounded by
+    /// <paramref name="timeout"/> so a dead network share can't hang the caller forever. Shared by
+    /// <see cref="Pages.Shared.ChannelEditDialog"/>'s single-channel "Прогноз объёма" and
+    /// <see cref="Pages.Shared.UsageForecastDialog"/>'s all-channels forecast, which both need the
+    /// exact same timeout/exception-handling shape — keeping one copy avoids the two drifting apart
+    /// the way the single-channel version briefly did from <c>ValidateSavePathAsync</c>'s budget
+    /// (docs/HISTORY.md #158/#160). Uses <see cref="DirectoryInfo.EnumerateFiles(string, SearchOption)"/>
+    /// rather than <c>Directory.EnumerateFiles</c> + a fresh <c>new FileInfo(f)</c> per path — the
+    /// latter issues a second stat() per file for no reason, since the first one already returns it.</summary>
+    public static async Task<DiskUsageScanResult> ScanFolderSizeAsync(string path, TimeSpan timeout)
+    {
+        try
+        {
+            var task = Task.Run(() => Directory.Exists(path)
+                ? new DirectoryInfo(path).EnumerateFiles("*", SearchOption.AllDirectories).Sum(f => f.Length)
+                : 0L);
+            var completed = await Task.WhenAny(task, Task.Delay(timeout));
+            return completed != task
+                ? DiskUsageScanResult.Timeout
+                : DiskUsageScanResult.Success(await task);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NotSupportedException or ArgumentException)
+        {
+            return DiskUsageScanResult.Failed(ex.Message);
+        }
+    }
+}
+
+/// <summary>Outcome of <see cref="DiskUsageEstimator.ScanFolderSizeAsync"/> — exactly one of the three
+/// factory methods applies, so callers switch on <see cref="TimedOut"/>/<see cref="Error"/> rather than
+/// juggling a bare nullable long that can't distinguish "0 bytes" from "didn't finish".</summary>
+public readonly record struct DiskUsageScanResult(long? Bytes, bool TimedOut, string? Error)
+{
+    public static DiskUsageScanResult Success(long bytes) => new(bytes, false, null);
+    public static DiskUsageScanResult Timeout { get; } = new(null, true, null);
+    public static DiskUsageScanResult Failed(string error) => new(null, false, error);
 }

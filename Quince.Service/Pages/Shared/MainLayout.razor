@@ -55,6 +55,7 @@
                     <button class="menu-item" title="@Loc["menu.bulkEditTitle"]" @onclick="ToggleBulkSelectMode">
                         @(UiState.BulkSelectMode ? Loc["menu.bulkEditStop"] : Loc["menu.bulkEditStart"])
                     </button>
+                    <button class="menu-item" title="@Loc["menu.usageForecastTitle"]" @onclick="OpenUsageForecast">@Loc["menu.usageForecast"]</button>
                     <div class="menu-sep"></div>
                     <button class="menu-item" title="@Loc["menu.refreshConfigTitle"]" @onclick="RefreshConfig">@Loc["menu.refreshConfig"]</button>
                     <button class="menu-item" title="@Loc["menu.settingsTitle"]" @onclick="OpenSettings">@Loc["menu.settings"]</button>
@@ -142,6 +143,11 @@
 @if (UiState.ResourceMonitorOpen)
 {
     <ResourceMonitorDialog OnClose="UiState.CloseResourceMonitor" />
+}
+
+@if (UiState.UsageForecastOpen)
+{
+    <UsageForecastDialog OnClose="UiState.CloseUsageForecast" />
 }
 
 <audio id="quince-playback-audio" style="display:none"></audio>
@@ -361,6 +367,13 @@
         if (!CanManage) return;
         CloseMenu();
         UiState.OpenResourceMonitor();
+    }
+
+    private void OpenUsageForecast()
+    {
+        if (!CanManage) return;
+        CloseMenu();
+        UiState.OpenUsageForecast();
     }
 
     private void RefreshConfig()

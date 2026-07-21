@@ -37,6 +37,10 @@ public class ChannelUiState
     /// management dialog this class opens.</summary>
     public bool ResourceMonitorOpen { get; private set; }
 
+    /// <summary>The admin-only "Прогноз использования" dialog (burger menu) — same gating story as
+    /// <see cref="ResourceMonitorOpen"/>.</summary>
+    public bool UsageForecastOpen { get; private set; }
+
     public void ToggleBulkSelectMode()
     {
         if (BulkSelectMode) EndBulkSelect();
@@ -209,6 +213,18 @@ public class ChannelUiState
     public void CloseResourceMonitor()
     {
         ResourceMonitorOpen = false;
+        Notify();
+    }
+
+    public void OpenUsageForecast()
+    {
+        UsageForecastOpen = true;
+        Notify();
+    }
+
+    public void CloseUsageForecast()
+    {
+        UsageForecastOpen = false;
         Notify();
     }
 
