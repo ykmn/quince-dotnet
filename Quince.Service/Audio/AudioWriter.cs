@@ -347,33 +347,57 @@ public sealed class AudioWriter
         };
     }
 
+    /// <summary>Runs once per channel start and once per calendar-day rollover (see <see cref="Start"/>
+    /// and <see cref="MaybeRotate"/>) — called synchronously from the writer's own run loop, so an
+    /// exception escaping this method doesn't just fail a cleanup pass, it kills the whole recording
+    /// task (an unobserved fault on <c>_task</c> silently stops the channel) or, from <see cref="Start"/>,
+    /// the start call itself. <see cref="Directory.EnumerateDirectories(string)"/>/
+    /// <see cref="Directory.EnumerateFiles(string)"/> are lazy — a share dropping mid-enumeration, or a
+    /// permissions problem on one sub-item, throws from inside the `foreach`, not at the call site — so
+    /// the whole loop is wrapped rather than just the two individual delete calls. Same exception set as
+    /// <see cref="Services.DiskUsageEstimator.ScanFolderSizeAsync"/> for the same reason: these are the
+    /// realistic failure modes for "something about this path/share is currently uncooperative," not a
+    /// genuine bug — anything else still propagates.</summary>
     private void CleanupOldFiles()
     {
         if (_config.RetentionDays <= 0) return;
         if (!Directory.Exists(_config.SavePath)) return;
 
-        var cutoff = DateOnly.FromDateTime(DateTime.Now.AddDays(-_config.RetentionDays));
-        foreach (var folder in Directory.EnumerateDirectories(_config.SavePath).OrderBy(f => f))
+        try
         {
-            var name = Path.GetFileName(folder);
-            var folderDate = OutputPathPlanner.ParseDateFolder(name, _config.DateFolderFormat);
-            if (folderDate is null || folderDate.Value >= cutoff) continue;
-
-            foreach (var file in Directory.EnumerateFiles(folder))
+            var cutoff = DateOnly.FromDateTime(DateTime.Now.AddDays(-_config.RetentionDays));
+            foreach (var folder in Directory.EnumerateDirectories(_config.SavePath).OrderBy(f => f))
             {
-                try { File.Delete(file); _log.LogDebug("Удалён старый файл: {File}", file); }
-                catch (IOException ex) { _log.LogWarning(ex, "Не удалось удалить {File}", file); }
-            }
+                var name = Path.GetFileName(folder);
+                var folderDate = OutputPathPlanner.ParseDateFolder(name, _config.DateFolderFormat);
+                if (folderDate is null || folderDate.Value >= cutoff) continue;
 
-            try
-            {
-                if (!Directory.EnumerateFileSystemEntries(folder).Any())
+                foreach (var file in Directory.EnumerateFiles(folder))
                 {
-                    Directory.Delete(folder);
-                    _log.LogDebug("Удалена пустая папка: {Folder}", folder);
+                    try { File.Delete(file); _log.LogDebug("Удалён старый файл: {File}", file); }
+                    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                    {
+                        _log.LogWarning(ex, "Не удалось удалить {File}", file);
+                    }
+                }
+
+                try
+                {
+                    if (!Directory.EnumerateFileSystemEntries(folder).Any())
+                    {
+                        Directory.Delete(folder);
+                        _log.LogDebug("Удалена пустая папка: {Folder}", folder);
+                    }
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    _log.LogWarning(ex, "Не удалось удалить пустую папку {Folder}", folder);
                 }
             }
-            catch (IOException) { }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NotSupportedException or ArgumentException)
+        {
+            _log.LogWarning(ex, "Чистка устаревших записей прервана: {SavePath}", _config.SavePath);
         }
     }
 
