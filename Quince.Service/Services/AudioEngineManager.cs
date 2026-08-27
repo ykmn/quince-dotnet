@@ -143,6 +143,26 @@ public class AudioEngineManager : IHostedService
         lock (_lock) { if (_engines.TryGetValue(channelName, out var engine)) engine.Unsubscribe(consumerId); }
     }
 
+    /// <summary>For browser "listen in" playback: subscribes to the channel's own already-primed,
+    /// already-paced meter buffer (see <see cref="ChannelEngine.SubscribeBuffered"/>) instead of a
+    /// fresh private buffer, so listen-in no longer re-pays the priming delay on every request.
+    /// Returns null if the channel isn't currently running.</summary>
+    public System.Threading.Channels.ChannelReader<AudioChunk>? SubscribeBufferedAudio(string channelName, string consumerId)
+    {
+        lock (_lock) { return _engines.TryGetValue(channelName, out var engine) ? engine.SubscribeBuffered(consumerId) : null; }
+    }
+
+    public void UnsubscribeBufferedAudio(string channelName, string consumerId)
+    {
+        lock (_lock) { if (_engines.TryGetValue(channelName, out var engine)) engine.UnsubscribeBuffered(consumerId); }
+    }
+
+    /// <summary>See <see cref="ChannelEngine.MeterPrimed"/>. Null if the channel isn't currently running.</summary>
+    public bool? IsMeterPrimed(string channelName)
+    {
+        lock (_lock) { return _engines.TryGetValue(channelName, out var engine) ? engine.MeterPrimed : null; }
+    }
+
     /// <summary>The running channel's actual capture sample rate (see <see cref="ChannelEngine.SampleRate"/>),
     /// or null if the channel isn't currently running.</summary>
     public int? GetSampleRate(string channelName)
