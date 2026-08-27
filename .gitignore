@@ -23,5 +23,6 @@ bin/
 obj/
 release/*
 !release/Update-Quince.ps1
+!release/Build-Quince.ps1
 *.user
 .vs/
