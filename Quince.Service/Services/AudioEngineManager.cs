@@ -23,6 +23,8 @@ public class AudioEngineManager : IHostedService
 
     private readonly Dictionary<string, ChannelEngine> _engines = new();
     private readonly object _lock = new();
+    private CancellationTokenSource? _startSweepCts;
+    private Task? _startSweepTask;
 
     public event Action<string, LevelReading>? LevelUpdated;
     public event Action<string, EngineStatus>? StatusUpdated;
@@ -53,16 +55,50 @@ public class AudioEngineManager : IHostedService
         // Runs after ChannelManager.StartAsync (registered later in Program.cs — the
         // generic host awaits hosted services' StartAsync in registration order), so
         // _channelManager.Channels is already populated here.
-        foreach (var config in _channelManager.Channels)
+        //
+        // The generic host doesn't start Kestrel listening until every IHostedService.StartAsync
+        // (this one included) returns — starting every AutoStart channel here synchronously used to
+        // make the web interface unreachable for as long as it took every single channel to finish
+        // starting (device connects, retention cleanup, ...), sequentially, one after another,
+        // because AudioEngineManager.Start() holds one shared lock for its whole duration. Kicking
+        // the whole sweep off from a background task instead lets Kestrel start listening
+        // immediately; channels then show up as started one by one via the normal StatusUpdated
+        // event as each finishes, instead of the whole UI being blank/unreachable until the last one
+        // is done. Deliberately not passed `cancellationToken` (the host's startup-timeout token,
+        // which is only valid for the duration of this call) — the sweep must keep running to
+        // completion after StartAsync itself has already returned.
+        _startSweepCts = new CancellationTokenSource();
+        var sweepCt = _startSweepCts.Token;
+        _startSweepTask = Task.Run(() =>
         {
-            if (IsEligible(config) && config.AutoStart)
-                Start(config.Name);
-        }
+            try
+            {
+                foreach (var config in _channelManager.Channels)
+                {
+                    if (sweepCt.IsCancellationRequested) break;
+                    if (IsEligible(config) && config.AutoStart)
+                        Start(config.Name);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Ошибка автозапуска каналов");
+            }
+        });
         return Task.CompletedTask;
     }
 
     public Task StopAsync(CancellationToken cancellationToken)
     {
+        // The auto-start sweep above now runs in the background, so it could still be in the
+        // middle of adding an engine to _engines when a shutdown comes in right after startup.
+        // Signal it to stop starting any further channels and wait for whatever Start() call it's
+        // currently inside of to finish, before clearing/stopping everything below — otherwise a
+        // channel started concurrently with this method could get added to _engines just after the
+        // clear below, and never get stopped (a leaked running capture/ffmpeg process).
+        _startSweepCts?.Cancel();
+        try { _startSweepTask?.Wait(TimeSpan.FromSeconds(5)); } catch (AggregateException) { }
+
         lock (_lock)
         {
             foreach (var engine in _engines.Values) engine.Stop();
