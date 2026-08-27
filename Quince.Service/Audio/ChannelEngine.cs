@@ -98,6 +98,22 @@ public sealed class ChannelEngine
 
     public void Unsubscribe(string consumerId) => _capture?.Unsubscribe(consumerId);
 
+    /// <summary>Exposes the channel's own already-primed, already-paced meter <see cref="PlayoutBuffer"/>
+    /// to an extra subscriber (e.g. <see cref="Services.AudioStreamEndpoint"/>'s browser listen-in),
+    /// instead of that subscriber needing to prime its own separate buffer from the raw feed. A
+    /// late-joining subscriber starts receiving live-paced chunks immediately — no backfill, no
+    /// re-priming delay. Null if the channel isn't currently running.</summary>
+    public System.Threading.Channels.ChannelReader<AudioChunk>? SubscribeBuffered(string consumerId) =>
+        _meterBuffer?.Subscribe(consumerId);
+
+    public void UnsubscribeBuffered(string consumerId) => _meterBuffer?.Unsubscribe(consumerId);
+
+    /// <summary>Whether the channel's meter buffer has finished priming, or null if the channel isn't
+    /// currently running. Distinguishes "buffer never primed at all" (capture unhealthy) from "primed
+    /// fine, but this one subscription never received anything" for <see cref="Services.AudioStreamEndpoint"/>'s
+    /// diagnostic watchdog.</summary>
+    public bool? MeterPrimed => _meterBuffer?.Primed;
+
     /// <summary>Every subprocess this channel currently has running, for the admin "Монитор
     /// ресурсов" dialog (<see cref="Services.ProcessMonitorService"/>) — the capture backend's own
     /// ffmpeg (absent for <see cref="SoundcardCapture"/>, in-process) and/or the output writer's
@@ -166,7 +182,7 @@ public sealed class ChannelEngine
                 _ffmpegPath, _loggerFactory.CreateLogger("AudioWriter"));
         }
 
-        _meter = new LevelMeter(_meterBuffer.Reader, _capture.SampleRate, _capture.Channels, _onLevelUpdate,
+        _meter = new LevelMeter(_meterBuffer.Subscribe("meter"), _capture.SampleRate, _capture.Channels, _onLevelUpdate,
             _loggerFactory.CreateLogger("LevelMeter"), _onGoniometerUpdate, _config.Name);
 
         if (_config.SilenceDetector.Enabled)

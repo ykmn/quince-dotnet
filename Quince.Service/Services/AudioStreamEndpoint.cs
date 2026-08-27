@@ -6,16 +6,17 @@ namespace Quince.Service.Services;
 
 /// <summary>
 /// Serves a channel's live audio to the browser as a continuous MP3 stream, for the ▶ "listen to
-/// channel" button (<see cref="AudioPlaybackService"/>). Subscribes to the channel's raw PCM the
-/// same way <see cref="Audio.AudioWriter"/> does, but runs it through the same <see cref="PlayoutBuffer"/>
-/// the level meter uses (docs/HISTORY.md #61), sized to the same source-aware delay
-/// <see cref="Audio.ChannelEngine"/> resolved for that channel's meter (docs/HISTORY.md #126 — small
-/// for continuous sources, measured-segment-based for HLS) before piping it through the bundled
+/// channel" button (<see cref="AudioPlaybackService"/>). Taps the channel's own already-running,
+/// already-primed meter <see cref="PlayoutBuffer"/> directly (via <see cref="Audio.ChannelEngine.SubscribeBuffered"/>,
+/// docs/HISTORY.md #61/#126/#127) instead of creating and re-priming a private one per request —
+/// every request used to pay the full priming delay again even though the channel had already been
+/// running and primed for hours; now a listen-in click only waits out that delay the first time a
+/// channel starts, exactly like the on-screen meter does — before piping it through the bundled
 /// ffmpeg to encode MP3 in real time and copying ffmpeg's stdout straight into the HTTP response body
 /// — an &lt;audio&gt; element in the client plays it through the browser's/OS's current default
-/// output device. The buffer means what's heard lags the real feed by that same delay (so audio and
-/// indicator stay in sync with each other) but no longer audibly stutters on the same
-/// producer-side gaps the meter used to visibly freeze on. No device selection: that needs a secure
+/// output device. Sharing the exact same paced stream as the meter also means audio and indicator
+/// are now literally the same feed rather than two independently-primed buffers with the same target
+/// delay, so they can't drift apart from each other. No device selection: that needs a secure
 /// context (HTTPS) for <c>HTMLMediaElement.setSinkId()</c>, which this app doesn't have yet.
 /// </summary>
 public static class AudioStreamEndpoint
@@ -39,7 +40,7 @@ public static class AudioStreamEndpoint
         channelName = Uri.UnescapeDataString(channelName);
 
         var consumerId = $"browser-playback-{Guid.NewGuid():N}";
-        var reader = engineManager.SubscribeAudio(channelName, consumerId);
+        var reader = engineManager.SubscribeBufferedAudio(channelName, consumerId);
         if (reader is null)
         {
             ctx.Response.StatusCode = StatusCodes.Status404NotFound;
@@ -53,31 +54,37 @@ public static class AudioStreamEndpoint
         var sampleRate = engineManager.GetSampleRate(channelName) ?? FallbackSampleRate;
 
         // Same delay ChannelEngine resolved for this channel's meter (source-aware — see
-        // docs/HISTORY.md #126) so audio and the on-screen indicator stay in sync; falls back to the
-        // app-wide non-HLS setting only if the channel somehow isn't in the running-engines map at
-        // this exact moment (shouldn't normally happen: SubscribeAudio above already returned
-        // non-null, implying it's running).
+        // docs/HISTORY.md #126) — only used below to size the diagnostic watchdog's timeout, since
+        // this request now shares the meter's own buffer instead of priming a private one.
         var delaySeconds = engineManager.GetPlayoutBufferSeconds(channelName) ?? engineManager.PlayoutBufferSeconds;
-
-        var buffer = new PlayoutBuffer(reader, sampleRate, log, channelName, delaySeconds);
-        buffer.Start();
 
         var ct = ctx.RequestAborted;
 
         // Diagnostic watchdog (docs/HISTORY.md — listen-in silently producing no audio for soundcard/
-        // Livewire channels, root cause not found by static review of this pipeline): a real "capture
-        // is healthy but this specific browser-playback consumer never receives anything" bug would
-        // otherwise be invisible — the HTTP response just opens and idles forever with no error
-        // anywhere. `+3` margin above the priming target covers ordinary scheduling jitter.
+        // Livewire channels, root cause not found by static review of this pipeline): a real "this
+        // specific browser-playback subscription never receives anything" bug would otherwise be
+        // invisible — the HTTP response just opens and idles forever with no error anywhere. Two
+        // independent checks, since sharing the meter's buffer means there are now two different
+        // things that can be broken: the shared buffer itself never priming (capture unhealthy — same
+        // as before), or this one subscription specifically never getting anything despite the shared
+        // buffer being fine (points at a subscribe/unsubscribe bug instead). `+3` margin above the
+        // priming target covers ordinary scheduling jitter.
+        var receivedFirstChunk = false;
         _ = Task.Run(async () =>
         {
             try { await Task.Delay(TimeSpan.FromSeconds(delaySeconds + 3), ct); }
             catch (OperationCanceledException) { return; }
-            if (!buffer.Primed)
-                using (log.BeginScope(new Dictionary<string, object> { ["Channel"] = channelName }))
+            using (log.BeginScope(new Dictionary<string, object> { ["Channel"] = channelName }))
+            {
+                if (engineManager.IsMeterPrimed(channelName) != true)
                     log.LogWarning(
-                        "Потоковое прослушивание «{Channel}»: буфер не наполнился за {Timeout:F0}с — от захвата не пришло ни одного аудио-чанка для этого прослушивания, хотя канал числится запущенным",
+                        "Потоковое прослушивание «{Channel}»: буфер канала не наполнился за {Timeout:F0}с — от захвата не пришло ни одного аудио-чанка, хотя канал числится запущенным",
                         channelName, delaySeconds + 3);
+                else if (!receivedFirstChunk)
+                    log.LogWarning(
+                        "Потоковое прослушивание «{Channel}»: буфер канала прогрет, но эта конкретная подписка не получила ни одного чанка за {Timeout:F0}с",
+                        channelName, delaySeconds + 3);
+            }
         });
 
         ctx.Response.ContentType = "audio/mpeg";
@@ -106,7 +113,7 @@ public static class AudioStreamEndpoint
         }
         catch (Win32Exception ex)
         {
-            engineManager.UnsubscribeAudio(channelName, consumerId);
+            engineManager.UnsubscribeBufferedAudio(channelName, consumerId);
             using (log.BeginScope(new Dictionary<string, object> { ["Channel"] = channelName }))
                 log.LogError(ex, "ffmpeg не найден по пути {Path} — не удалось начать потоковое прослушивание", engineManager.FfmpegPath);
             ctx.Response.StatusCode = StatusCodes.Status500InternalServerError;
@@ -121,8 +128,9 @@ public static class AudioStreamEndpoint
         {
             try
             {
-                await foreach (var chunk in buffer.Reader.ReadAllAsync(ct))
+                await foreach (var chunk in reader.ReadAllAsync(ct))
                 {
+                    receivedFirstChunk = true;
                     var bytes = new byte[chunk.Samples.Length * sizeof(float)];
                     Buffer.BlockCopy(chunk.Samples, 0, bytes, 0, bytes.Length);
                     await proc.StandardInput.BaseStream.WriteAsync(bytes, ct);
@@ -146,8 +154,7 @@ public static class AudioStreamEndpoint
         catch (OperationCanceledException) { /* client disconnected/stopped playback — expected */ }
         finally
         {
-            engineManager.UnsubscribeAudio(channelName, consumerId);
-            buffer.Stop();
+            engineManager.UnsubscribeBufferedAudio(channelName, consumerId);
             // An exit here (before the client itself disconnected, i.e. reached without an
             // OperationCanceledException above) means ffmpeg gave up on its own — e.g. an
             // unsupported/malformed input format for this channel's sample rate. Previously this

@@ -12,14 +12,21 @@ namespace Quince.Service.Audio;
 /// depend on a buffer, and silence alerting needs to stay prompt, not smoothed).
 ///
 /// Buffers up to <c>TargetDelaySeconds</c> of audio before releasing anything ("priming" — during
-/// this window the wrapped consumer sees no chunks at all, which <see cref="LevelMeter"/>'s own
+/// this window every subscriber sees no chunks at all, which <see cref="LevelMeter"/>'s own
 /// existing decay-to-silence handles gracefully with no special-casing needed here). Once primed,
 /// releases chunks paced to real wall-clock time regardless of how unevenly they arrive upstream —
 /// e.g. HLS's periodic wait for the next live segment (docs/HISTORY.md #54-58) — so a producer-side
-/// gap shorter than the buffered depth becomes invisible to the consumer. The cost is a fixed added
-/// latency equal to the buffered depth: the wrapped consumer always lags the real feed by that much.
+/// gap shorter than the buffered depth becomes invisible to every subscriber. The cost is a fixed
+/// added latency equal to the buffered depth: subscribers always lag the real feed by that much.
 /// If a real outage lasts longer than the buffered depth, the queue simply runs dry and this behaves
 /// like the unbuffered feed again (no exception, no special handling — degrades gracefully).
+///
+/// Supports multiple simultaneous subscribers (<see cref="Subscribe"/>/<see cref="Unsubscribe"/>,
+/// mirroring <see cref="FfmpegPipedCapture"/>'s own raw-feed fan-out) so a channel's meter and any
+/// number of browser "listen in" HTTP requests can share the exact same already-primed, already-paced
+/// instance instead of each needing to prime its own — a late-joining subscriber (e.g. a listen-in
+/// click on a channel that's been running for hours) starts receiving live-paced chunks immediately,
+/// with no backfill of chunks already released to earlier subscribers.
 ///
 /// <c>TargetDelaySeconds</c> itself is source-aware since docs/HISTORY.md #126: the periodic gap
 /// this class exists to hide has only ever been observed on HLS sources, so
@@ -50,8 +57,8 @@ public sealed class PlayoutBuffer
     private readonly string _channelName;
     private readonly double _targetDelaySeconds;
 
-    // Bounded with DropOldest — NOT unbounded — for a specific reason (docs/HISTORY.md #64): the
-    // consumer (LevelMeter's loop, or AudioStreamEndpoint's ffmpeg-encode-then-HTTP-write-to-browser
+    // Bounded with DropOldest — NOT unbounded — for a specific reason (docs/HISTORY.md #64): a
+    // subscriber (LevelMeter's loop, or AudioStreamEndpoint's ffmpeg-encode-then-HTTP-write-to-browser
     // chain) can momentarily fall behind real time for reasons entirely outside this class's control
     // (a GC pause, ffmpeg process startup, the browser's own pre-buffering before it starts an
     // <audio> stream, backpressure from a slow client network write). With an unbounded channel, any
@@ -63,15 +70,16 @@ public sealed class PlayoutBuffer
     // dropping anything, while still bounding how far behind real time the output can silently get —
     // once exceeded, the oldest not-yet-consumed chunk is dropped in favor of the newest, so the
     // stream self-corrects back toward the intended TargetDelaySeconds lag instead of drifting
-    // further with every hiccup.
+    // further with every hiccup. Same reasoning applies to every subscriber equally (meter and
+    // listen-in are both "a human is watching/listening in real time" cases), so every subscriber's
+    // channel uses this same capacity/DropOldest combination.
     private const int OutputCapacity = 30;
-    private readonly Channel<AudioChunk> _output = Channel.CreateBounded<AudioChunk>(
-        new BoundedChannelOptions(OutputCapacity)
-        {
-            FullMode = BoundedChannelFullMode.DropOldest,
-            SingleReader = true,
-            SingleWriter = true,
-        });
+
+    // Multi-consumer fan-out, mirroring FfmpegPipedCapture's own _consumers dictionary: each
+    // subscriber gets its own bounded output channel so one slow subscriber falling behind and
+    // dropping chunks never affects any other subscriber.
+    private readonly object _consumerLock = new();
+    private readonly Dictionary<string, ChannelWriter<AudioChunk>> _consumers = new();
 
     private readonly object _queueLock = new();
     private readonly Queue<AudioChunk> _queue = new();
@@ -94,7 +102,28 @@ public sealed class PlayoutBuffer
         _targetDelaySeconds = targetDelaySeconds;
     }
 
-    public ChannelReader<AudioChunk> Reader => _output.Reader;
+    /// <summary>Registers a new subscriber under <paramref name="consumerId"/> and returns its own
+    /// bounded reader. Only chunks released (see <see cref="ReleaseDue"/>) after this call are ever
+    /// written to it — no backfill of chunks already released to earlier subscribers.</summary>
+    public ChannelReader<AudioChunk> Subscribe(string consumerId)
+    {
+        var channel = Channel.CreateBounded<AudioChunk>(new BoundedChannelOptions(OutputCapacity)
+        {
+            FullMode = BoundedChannelFullMode.DropOldest,
+            SingleReader = true,
+            SingleWriter = true,
+        });
+        lock (_consumerLock) { _consumers[consumerId] = channel.Writer; }
+        return channel.Reader;
+    }
+
+    /// <summary>Removes a subscriber. Its reader is not completed — same "reader relies on its own
+    /// CancellationToken to unwind" contract <see cref="FfmpegPipedCapture.Unsubscribe"/> already
+    /// uses, since a caller that's unsubscribing already knows it's done with the reader.</summary>
+    public void Unsubscribe(string consumerId)
+    {
+        lock (_consumerLock) { _consumers.Remove(consumerId); }
+    }
 
     /// <summary>Whether priming has completed (see <see cref="Enqueue"/>) — exposed so a consumer
     /// like <see cref="Services.AudioStreamEndpoint"/> can tell "no chunks ever arrived at all" apart
@@ -135,7 +164,15 @@ public sealed class PlayoutBuffer
             }
         }
         catch (OperationCanceledException) { }
-        finally { _output.Writer.TryComplete(); }
+        finally
+        {
+            // Complete every currently-attached subscriber's writer so a listen-in HTTP request's
+            // ReadAllAsync loop ends via normal completion (clean stream end) instead of hanging
+            // until its own CancellationToken eventually fires, whenever the channel stops/restarts.
+            List<ChannelWriter<AudioChunk>> writers;
+            lock (_consumerLock) { writers = _consumers.Values.ToList(); }
+            foreach (var writer in writers) writer.TryComplete();
+        }
     }
 
     private async Task ReleaseLoopAsync(CancellationToken ct)
@@ -198,6 +235,11 @@ public sealed class PlayoutBuffer
             }
         }
         if (toRelease == null) return;
-        foreach (var chunk in toRelease) _output.Writer.TryWrite(chunk);
+
+        List<ChannelWriter<AudioChunk>> writers;
+        lock (_consumerLock) { writers = _consumers.Values.ToList(); }
+        foreach (var chunk in toRelease)
+            foreach (var writer in writers)
+                writer.TryWrite(chunk);
     }
 }
