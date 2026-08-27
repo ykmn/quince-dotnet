@@ -26,6 +26,63 @@ public class AudioWriterCleanupTests
     }
 
     [Fact]
+    public async Task Start_ManyExpiredFolders_ReturnsBeforeCleanupFinishes()
+    {
+        // Regression test for the web UI taking minutes to become reachable after a service
+        // restart: AudioWriter.Start() used to run CleanupOldFiles() synchronously, and
+        // AudioEngineManager starts every channel's engine (which calls this) before Kestrel
+        // starts listening — so one channel with a large backlog of expired retention folders
+        // could block the whole web interface from appearing. Start() must return immediately;
+        // the actual deletion work happens in the background.
+        var tempDir = Path.Combine(Path.GetTempPath(), "quince-test-" + Guid.NewGuid());
+        const int expiredFolderCount = 500;
+        try
+        {
+            for (var i = 0; i < expiredFolderCount; i++)
+            {
+                var folder = Path.Combine(tempDir, OutputPathPlanner.FormatDate(DateTime.Now.AddDays(-10 - i), "YYYY-MM-DD"));
+                Directory.CreateDirectory(folder);
+                File.WriteAllBytes(Path.Combine(folder, "00-00-00.wav"), new byte[10]);
+            }
+
+            var config = new ChannelConfig
+            {
+                Name = "test",
+                SavePath = tempDir,
+                RetentionDays = 1, // every folder above is well past the cutoff
+                FileDurationMinutes = 60,
+                OutputFormat = new OutputFormatConfig { Mode = "custom", FileFormat = "wav", BitDepth = 16, SampleRate = SampleRate, Channels = 1 },
+            };
+
+            var channel = Channel.CreateUnbounded<AudioChunk>();
+            var writer = new AudioWriter(config, channel.Reader, SampleRate, inputChannels: 1, ResolveFfmpegPath(), NullLogger.Instance);
+
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            writer.Start();
+            sw.Stop();
+
+            Assert.True(sw.ElapsedMilliseconds < 200,
+                $"Start() took {sw.ElapsedMilliseconds}ms — should return immediately instead of deleting {expiredFolderCount} folders synchronously.");
+
+            // Cleanup still has to actually happen, just off the calling thread.
+            await WaitUntilAsync(() => Directory.GetDirectories(tempDir).Length == 0, TimeSpan.FromSeconds(10));
+            Assert.Empty(Directory.GetDirectories(tempDir));
+
+            writer.Stop();
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir)) Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    private static async Task WaitUntilAsync(Func<bool> condition, TimeSpan timeout)
+    {
+        var deadline = DateTime.UtcNow + timeout;
+        while (!condition() && DateTime.UtcNow < deadline) await Task.Delay(20);
+    }
+
+    [Fact]
     public void Start_ReadOnlyFileInExpiredFolder_DoesNotThrow()
     {
         var tempDir = Path.Combine(Path.GetTempPath(), "quince-test-" + Guid.NewGuid());

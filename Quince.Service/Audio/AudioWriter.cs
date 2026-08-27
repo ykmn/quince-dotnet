@@ -81,10 +81,19 @@ public sealed class AudioWriter
     public void Start()
     {
         if (IsRunning) return;
-        CleanupOldFiles();
         _cts = new CancellationTokenSource();
         _task = Task.Run(() => RunAsync(_cts.Token));
         _log.LogInformation("AudioWriter запущен");
+
+        // Off the calling thread — this used to run synchronously right here, so a channel with a
+        // large backlog of expired retention folders could block Start() for a long time. Since
+        // ChannelEngine.Start() runs inside AudioEngineManager's single lock, and every AutoStart
+        // channel starts sequentially before Kestrel begins listening, one such channel could delay
+        // the entire web interface becoming reachable by minutes after a service restart. Safe to
+        // run concurrently with RunAsync/MaybeRotate: CleanupOldFiles only ever considers dated
+        // folders strictly older than today, so it can never race the folder RunAsync is about to
+        // create for the current recording.
+        _ = Task.Run(CleanupOldFiles);
     }
 
     public void Stop()
