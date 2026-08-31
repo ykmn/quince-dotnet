@@ -367,6 +367,40 @@ body {
     margin: 0;
 }
 
+.about-box {
+    max-width: min(640px, calc(100vw - 32px));
+}
+
+.about-content {
+    max-height: 60vh;
+    overflow-y: auto;
+}
+
+.about-content ul {
+    margin: 4px 0;
+    padding-left: 20px;
+    font-size: 13px;
+    color: var(--text-secondary);
+}
+
+.about-content ul li {
+    margin-bottom: 8px;
+}
+
+.about-content ul li:last-child {
+    margin-bottom: 0;
+}
+
+.about-content ul a {
+    color: var(--link);
+}
+
+.about-version {
+    color: var(--text-faint);
+    font-size: 12px;
+    margin-top: 2px;
+}
+
 .about-copyright {
     font-size: 11px;
     color: var(--text-faint);
@@ -375,6 +409,11 @@ body {
 
 .about-copyright a {
     color: var(--link);
+}
+
+.about-copyright img {
+    vertical-align: middle;
+    opacity: 0.85;
 }
 
 .modal-box p {
