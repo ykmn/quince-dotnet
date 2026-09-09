@@ -143,7 +143,7 @@ public sealed class ChannelEngine
                 _getReconnectDelaySeconds, _getReconnectMaxAttempts,
                 _loggerFactory.CreateLogger("LivewireCapture"), OnReconnectExhausted, _config.Name),
             _ => new StreamCapture(_ffmpegPath, _config.Source.Url, _config.Source.StreamType,
-                _config.Source.AllowInvalidSsl, _config.Source.HlsBitrateIndex,
+                _config.Source.AllowInvalidSsl, _config.Source.HlsBitrateIndex, _config.Source.RadioplayerToken,
                 _getReconnectDelaySeconds, _getReconnectMaxAttempts,
                 _loggerFactory.CreateLogger("StreamCapture"), OnReconnectExhausted, _config.Name),
         };
@@ -349,6 +349,7 @@ public sealed class ChannelEngine
             || old.Source.Url != newConfig.Source.Url
             || old.Source.StreamType != newConfig.Source.StreamType
             || old.Source.AllowInvalidSsl != newConfig.Source.AllowInvalidSsl
+            || old.Source.RadioplayerToken != newConfig.Source.RadioplayerToken
             || old.Source.HlsBitrateIndex != newConfig.Source.HlsBitrateIndex
             || old.Source.DeviceName != newConfig.Source.DeviceName
             || old.Source.DeviceIndex != newConfig.Source.DeviceIndex

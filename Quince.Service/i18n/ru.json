@@ -142,6 +142,8 @@
   "channelEdit.allowHttpTitle": "Разрешить подключение по обычному HTTP, если поток не поддерживает HTTPS.",
   "channelEdit.allowInvalidSslLabel": "Разрешить неверный SSL-сертификат",
   "channelEdit.allowInvalidSslTitle": "Не проверять валидность SSL-сертификата сервера (для потоков с самоподписанным/просроченным сертификатом).",
+  "channelEdit.radioplayerTokenLabel": "Токен radioplayer.ru (CDN radio-holding.ru)",
+  "channelEdit.radioplayerTokenTitle": "Для потоков radio-holding.ru, отдаваемых через плеер radioplayer.ru (например, cdn.radio-holding.ru/marusya_default): перед каждым (пере)подключением получать свежий токен st/gts с api.radioplayer.ru и добавлять заголовок Referer, без которых CDN вместо звука отдаёт редирект на сайт станции.",
   "channelEdit.metadataUrlLabel": "URL метаданных / режим",
   "channelEdit.metadataUrlTitle": "Режим метаданных потока: пусто — не собирать, «icy» — встроенные ICY-метаданные Icecast, любое другое значение — обнаруженный JSON-эндпоинт метаданных HLS. Можно ввести вручную или подставить кнопкой справа.",
   "channelEdit.metadataUrlPlaceholder": "icy, JSON-эндпоинт, или пусто",

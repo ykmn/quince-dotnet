@@ -76,8 +76,9 @@ public abstract class FfmpegPipedCapture : IAudioCapture
     /// <summary>Builds this attempt's ffmpeg command-line arguments (last element is always the
     /// output, "pipe:1" for f32le). Called fresh at the start of every connection attempt, so a
     /// subclass that needs a temp file (e.g. <see cref="LivewireCapture"/>'s SDP) can (re)write it
-    /// here too.</summary>
-    protected abstract string[] BuildArgs();
+    /// here too — or, for <see cref="StreamCapture"/>'s <see cref="RadioplayerAuth"/> support, fetch
+    /// a fresh short-lived auth token, which is also why this is async rather than a plain method.</summary>
+    protected abstract Task<string[]> BuildArgsAsync(CancellationToken ct);
 
     /// <summary>Short human-readable description of what's being connected to, used only in log
     /// messages ("Подключение к {TargetDescription}...").</summary>
@@ -138,7 +139,7 @@ public abstract class FfmpegPipedCapture : IAudioCapture
             Process? process = null;
             try
             {
-                var args = BuildArgs();
+                var args = await BuildArgsAsync(ct);
                 Log.LogDebug("ffmpeg аргументы: {Args}", string.Join(" ", args));
                 var psi = new ProcessStartInfo(FfmpegPath)
                 {

@@ -13,6 +13,7 @@ public sealed class StreamCapture : FfmpegPipedCapture
     private readonly string _streamType;
     private readonly bool _allowInvalidSsl;
     private readonly int _hlsBitrateIndex;
+    private readonly bool _radioplayerToken;
 
     protected override int GetSampleRate() => SampleRate;
     protected override int GetChannels() => Channels;
@@ -26,7 +27,7 @@ public sealed class StreamCapture : FfmpegPipedCapture
     /// callback freely call back into <see cref="Stop"/> without deadlocking on this loop's own
     /// task.</param>
     public StreamCapture(string ffmpegPath, string url, string streamType, bool allowInvalidSsl,
-        int hlsBitrateIndex, Func<int> getReconnectDelaySeconds, Func<int> getMaxReconnectAttempts,
+        int hlsBitrateIndex, bool radioplayerToken, Func<int> getReconnectDelaySeconds, Func<int> getMaxReconnectAttempts,
         ILogger log, Action? onReconnectExhausted = null, string channelName = "")
         : base(ffmpegPath, getReconnectDelaySeconds, getMaxReconnectAttempts, log, onReconnectExhausted, channelName)
     {
@@ -34,17 +35,25 @@ public sealed class StreamCapture : FfmpegPipedCapture
         _streamType = streamType;
         _allowInvalidSsl = allowInvalidSsl;
         _hlsBitrateIndex = hlsBitrateIndex;
+        _radioplayerToken = radioplayerToken;
     }
 
     protected override string TargetDescription => _url;
 
-    protected override string[] BuildArgs()
+    protected override async Task<string[]> BuildArgsAsync(CancellationToken ct)
     {
         var ua = UserAgents.RandomDesktop();
-        return BuildFfmpegArgs(_url, _streamType, _allowInvalidSsl, _hlsBitrateIndex, ua);
+        var url = _url;
+        string? extraHeaders = null;
+        if (_radioplayerToken)
+        {
+            url = await RadioplayerAuth.ApplyTokenAsync(_url, Log, ct);
+            extraHeaders = RadioplayerAuth.RefererHeaderArg;
+        }
+        return BuildFfmpegArgs(url, _streamType, _allowInvalidSsl, _hlsBitrateIndex, ua, extraHeaders);
     }
 
-    internal static string[] BuildFfmpegArgs(string url, string streamType, bool allowInvalidSsl, int hlsBitrateIndex, string userAgent)
+    internal static string[] BuildFfmpegArgs(string url, string streamType, bool allowInvalidSsl, int hlsBitrateIndex, string userAgent, string? extraHeaders = null)
     {
         var args = new List<string> { "-hide_banner", "-loglevel", "error" };
         var isHls = streamType == "hls";
@@ -62,6 +71,7 @@ public sealed class StreamCapture : FfmpegPipedCapture
         if (!isHls) args.AddRange(new[] { "-fflags", "nobuffer" });
 
         if (allowInvalidSsl) args.AddRange(new[] { "-tls_verify", "0" });
+        if (!string.IsNullOrEmpty(extraHeaders)) args.AddRange(new[] { "-headers", extraHeaders });
         args.AddRange(new[] { "-user_agent", userAgent });
 
         // Without -live_start_index -1, ffmpeg's HLS demuxer starts from the oldest segment still

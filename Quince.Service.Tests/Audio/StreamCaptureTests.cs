@@ -69,4 +69,25 @@ public class StreamCaptureTests
         Assert.Contains("-tls_verify", args);
         Assert.Contains("0", args);
     }
+
+    [Fact]
+    public void BuildFfmpegArgs_NoExtraHeaders_DoesNotAddHeadersArg()
+    {
+        var args = StreamCapture.BuildFfmpegArgs("https://example.com/stream", "icecast",
+            allowInvalidSsl: false, hlsBitrateIndex: 0, userAgent: "TestAgent/1.0");
+
+        Assert.DoesNotContain("-headers", args);
+    }
+
+    [Fact]
+    public void BuildFfmpegArgs_WithExtraHeaders_AddsHeadersArgBeforeInput()
+    {
+        var args = StreamCapture.BuildFfmpegArgs("https://example.com/stream", "icecast",
+            allowInvalidSsl: false, hlsBitrateIndex: 0, userAgent: "TestAgent/1.0",
+            extraHeaders: RadioplayerAuth.RefererHeaderArg);
+
+        Assert.Contains("-headers", args);
+        Assert.Contains(RadioplayerAuth.RefererHeaderArg, args);
+        Assert.True(Array.IndexOf(args, "-headers") < Array.IndexOf(args, "-i"));
+    }
 }

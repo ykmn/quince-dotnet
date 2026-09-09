@@ -31,6 +31,16 @@ public class SourceConfig
     public int HlsBitrateIndex { get; set; } = 0;
     public bool AllowHttp { get; set; } = false;
     public bool AllowInvalidSsl { get; set; } = false;
+
+    /// <summary>Treats <see cref="Url"/> as a radioplayer.ru-fronted radio-holding.ru stream (e.g.
+    /// cdn.radio-holding.ru/marusya_default — see docs/HISTORY.md): that CDN requires a fresh,
+    /// short-lived `st`/`gts` auth token in the query string plus a `Referer: https://radioplayer.ru/`
+    /// header, or it silently redirects to the station's marketing site instead of serving audio.
+    /// When set, a fresh token is fetched from api.radioplayer.ru before every (re)connect —
+    /// see <see cref="Quince.Service.Audio.RadioplayerAuth"/> — so the URL in config can be the bare stream URL with
+    /// no `st`/`gts` params of its own (they'd expire anyway).</summary>
+    public bool RadioplayerToken { get; set; } = false;
+
     public string MetadataUrl { get; set; } = "";
 
     // source.type == "livewire" (Axia/Telos AoIP): audio arrives over a multicast RTP stream on the

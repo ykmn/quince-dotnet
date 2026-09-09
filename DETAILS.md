@@ -97,6 +97,7 @@ source:
   device_uid: ''
   allow_http: false
   allow_invalid_ssl: false
+  radioplayer_token: false             # для потоков radio-holding.ru через плеер radioplayer.ru (напр. cdn.radio-holding.ru/marusya_default) — без этого CDN отдаёт редирект на сайт станции вместо аудио. Получает свежий токен st/gts с api.radioplayer.ru перед каждым (пере)подключением и добавляет заголовок Referer
   metadata_url: ''                     # '' | 'icy' | JSON-эндпоинт — можно вписать вручную или подставить кнопкой «Определить»
   livewire_channel_number: 0           # для type: livewire — номер канала (1-65535); мультикаст-адрес 239.192.x.x считается автоматически. Сетевой интерфейс общий для всех Livewire-каналов — задаётся в общих настройках (settings.yaml/livewire_nic), не здесь
   livewire_channel_name: ''            # отображаемое название — из автообнаружения или введено вручную
