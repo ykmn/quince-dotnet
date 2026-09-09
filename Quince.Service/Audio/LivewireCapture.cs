@@ -57,7 +57,9 @@ public sealed class LivewireCapture : FfmpegPipedCapture
     protected override string TargetDescription =>
         $"Livewire-каналу {_source.LivewireChannelNumber} ({_source.LivewireChannelName}) через {_nic}";
 
-    protected override string[] BuildArgs()
+    protected override Task<string[]> BuildArgsAsync(CancellationToken ct) => Task.FromResult(BuildArgs());
+
+    private string[] BuildArgs()
     {
         if (!LivewireAddressing.IsValidChannelNumber(_source.LivewireChannelNumber))
             throw new InvalidOperationException(

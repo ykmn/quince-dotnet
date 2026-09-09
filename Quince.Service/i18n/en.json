@@ -142,6 +142,8 @@
   "channelEdit.allowHttpTitle": "Allow connecting over plain HTTP if the stream doesn't support HTTPS.",
   "channelEdit.allowInvalidSslLabel": "Allow invalid SSL certificate",
   "channelEdit.allowInvalidSslTitle": "Don't validate the server's SSL certificate (for streams with a self-signed/expired certificate).",
+  "channelEdit.radioplayerTokenLabel": "radioplayer.ru token (radio-holding.ru CDN)",
+  "channelEdit.radioplayerTokenTitle": "For radio-holding.ru streams served through the radioplayer.ru player (e.g. cdn.radio-holding.ru/marusya_default): fetch a fresh st/gts token from api.radioplayer.ru before every (re)connect and add the Referer header the CDN needs — without both it redirects to the station's website instead of serving audio.",
   "channelEdit.metadataUrlLabel": "Metadata URL / mode",
   "channelEdit.metadataUrlTitle": "Stream metadata mode: empty — don't collect, \"icy\" — Icecast's built-in ICY metadata, any other value — a discovered HLS metadata JSON endpoint. Can be entered manually or filled in with the button on the right.",
   "channelEdit.metadataUrlPlaceholder": "icy, JSON endpoint, or empty",
