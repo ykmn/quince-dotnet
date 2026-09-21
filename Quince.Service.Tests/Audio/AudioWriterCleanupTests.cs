@@ -83,6 +83,48 @@ public class AudioWriterCleanupTests
     }
 
     [Fact]
+    public async Task UpdateRetention_ShortenedOnRunningWriter_DeletesNewlyExpiredFolders()
+    {
+        // Regression: editing retention_days on a running channel never reached the writer (it held
+        // the old value and only cleaned at start / date rollover), so shortening retention freed
+        // nothing until a restart.
+        var tempDir = Path.Combine(Path.GetTempPath(), "quince-test-" + Guid.NewGuid());
+        try
+        {
+            var folder = Path.Combine(tempDir, OutputPathPlanner.FormatDate(DateTime.Now.AddDays(-5), "YYYY-MM-DD"));
+            Directory.CreateDirectory(folder);
+            File.WriteAllBytes(Path.Combine(folder, "00-00-00.wav"), new byte[10]);
+
+            var config = new ChannelConfig
+            {
+                Name = "test",
+                SavePath = tempDir,
+                RetentionDays = 30, // 5-day-old folder is NOT expired yet
+                FileDurationMinutes = 60,
+                OutputFormat = new OutputFormatConfig { Mode = "custom", FileFormat = "wav", BitDepth = 16, SampleRate = SampleRate, Channels = 1 },
+            };
+
+            var channel = Channel.CreateUnbounded<AudioChunk>();
+            var writer = new AudioWriter(config, channel.Reader, SampleRate, inputChannels: 1, ResolveFfmpegPath(), NullLogger.Instance);
+            writer.Start();
+
+            await Task.Delay(300); // let the initial (no-op) pass finish
+            Assert.Single(Directory.GetDirectories(tempDir));
+
+            writer.UpdateRetention(1);
+
+            await WaitUntilAsync(() => Directory.GetDirectories(tempDir).Length == 0, TimeSpan.FromSeconds(10));
+            Assert.Empty(Directory.GetDirectories(tempDir));
+
+            writer.Stop();
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir)) Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
     public void Start_ReadOnlyFileInExpiredFolder_DoesNotThrow()
     {
         var tempDir = Path.Combine(Path.GetTempPath(), "quince-test-" + Guid.NewGuid());

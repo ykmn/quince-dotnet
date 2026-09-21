@@ -288,6 +288,9 @@ public sealed class ChannelEngine
         if (!PipelineChanged(newConfig))
         {
             _config = newConfig;
+            // RetentionDays isn't a pipeline setting (no restart), but the running writer holds
+            // its own copy — hand it the new value or a shortened retention never takes effect.
+            _writer?.UpdateRetention(newConfig.RetentionDays);
             return;
         }
         Stop();
