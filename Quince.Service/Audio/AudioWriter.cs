@@ -40,9 +40,20 @@ public sealed class AudioWriter
     private CancellationTokenSource? _cts;
     private Task? _task;
 
+    // Retention cleanup is driven by its own timer (immediately on Start, then hourly), NOT by the
+    // recording loop: it used to run only from MaybeRotate at a date rollover, which never fires
+    // while no file is open (silence stop, ffmpeg crash/disk-full cooldown) — so a full disk could
+    // never be freed by the very cleanup it needed. _retentionDays is mutable so an edited
+    // retention_days reaches a running writer (see UpdateRetention).
+    private static readonly TimeSpan CleanupInterval = TimeSpan.FromHours(1);
+    private Timer? _cleanupTimer;
+    private int _cleanupRunning;
+    private volatile int _retentionDays;
+
     public AudioWriter(ChannelConfig config, ChannelReader<AudioChunk> reader, int inputSampleRate, int inputChannels, string ffmpegPath, ILogger log)
     {
         _config = config;
+        _retentionDays = config.RetentionDays;
         _reader = reader;
         _inputSampleRate = inputSampleRate > 0 ? inputSampleRate : config.OutputFormat.SampleRate;
         _inputChannels = inputChannels > 0 ? inputChannels : config.OutputFormat.Channels;
@@ -85,19 +96,31 @@ public sealed class AudioWriter
         _task = Task.Run(() => RunAsync(_cts.Token));
         _log.LogInformation("AudioWriter запущен");
 
-        // Off the calling thread — this used to run synchronously right here, so a channel with a
-        // large backlog of expired retention folders could block Start() for a long time. Since
-        // ChannelEngine.Start() runs inside AudioEngineManager's single lock, and every AutoStart
-        // channel starts sequentially before Kestrel begins listening, one such channel could delay
-        // the entire web interface becoming reachable by minutes after a service restart. Safe to
-        // run concurrently with RunAsync/MaybeRotate: CleanupOldFiles only ever considers dated
-        // folders strictly older than today, so it can never race the folder RunAsync is about to
-        // create for the current recording.
-        _ = Task.Run(CleanupOldFiles);
+        // Off the calling thread (timer callbacks run on the thread pool) — this used to run
+        // synchronously right here, so a channel with a large backlog of expired retention folders
+        // could block Start() for a long time. Since ChannelEngine.Start() runs inside
+        // AudioEngineManager's single lock, and every AutoStart channel starts sequentially before
+        // Kestrel begins listening, one such channel could delay the entire web interface by minutes
+        // after a service restart. Safe to run concurrently with RunAsync: CleanupOldFiles only ever
+        // considers dated folders strictly older than today, so it can never race the folder RunAsync
+        // is about to create for the current recording.
+        _cleanupTimer?.Dispose();
+        _cleanupTimer = new Timer(_ => RunCleanupSafe(), null, TimeSpan.Zero, CleanupInterval);
+    }
+
+    /// <summary>Applies an edited <c>retention_days</c> to this running writer and runs a cleanup
+    /// pass right away, so a shortened retention frees space immediately instead of after a restart.</summary>
+    public void UpdateRetention(int retentionDays)
+    {
+        if (retentionDays == _retentionDays) return;
+        _retentionDays = retentionDays;
+        if (IsRunning) _ = Task.Run(RunCleanupSafe);
     }
 
     public void Stop()
     {
+        _cleanupTimer?.Dispose();
+        _cleanupTimer = null;
         _cts?.Cancel();
         try { _task?.Wait(TimeSpan.FromSeconds(10)); } catch (AggregateException) { }
         _cts = null;
@@ -204,7 +227,6 @@ public sealed class AudioWriter
             CloseProc();
             OpenProc(now);
             _log.LogInformation("Ротация: {Old} -> {New}", oldPath, _currentFile);
-            if (dateRolled) CleanupOldFiles();
         }
     }
 
@@ -367,14 +389,28 @@ public sealed class AudioWriter
     /// <see cref="Services.DiskUsageEstimator.ScanFolderSizeAsync"/> for the same reason: these are the
     /// realistic failure modes for "something about this path/share is currently uncooperative," not a
     /// genuine bug — anything else still propagates.</summary>
+    /// <summary>Timer/Task entry point: an exception escaping a timer callback or a fire-and-forget
+    /// task would take the whole service process down (timer) or vanish silently (task), so anything
+    /// <see cref="CleanupOldFiles"/> doesn't handle itself is logged here instead.</summary>
+    private void RunCleanupSafe()
+    {
+        try { CleanupOldFiles(); }
+        catch (Exception ex) { _log.LogError(ex, "Неожиданная ошибка при чистке устаревших записей: {SavePath}", _config.SavePath); }
+    }
+
     private void CleanupOldFiles()
     {
-        if (_config.RetentionDays <= 0) return;
+        var retentionDays = _retentionDays;
+        if (retentionDays <= 0) return;
         if (!Directory.Exists(_config.SavePath)) return;
+        // Timer ticks and UpdateRetention can overlap a long-running pass — skip rather than queue.
+        if (Interlocked.Exchange(ref _cleanupRunning, 1) == 1) return;
 
+        int filesDeleted = 0, foldersDeleted = 0;
+        long bytesFreed = 0;
         try
         {
-            var cutoff = DateOnly.FromDateTime(DateTime.Now.AddDays(-_config.RetentionDays));
+            var cutoff = DateOnly.FromDateTime(DateTime.Now.AddDays(-retentionDays));
             foreach (var folder in Directory.EnumerateDirectories(_config.SavePath).OrderBy(f => f))
             {
                 var name = Path.GetFileName(folder);
@@ -383,7 +419,14 @@ public sealed class AudioWriter
 
                 foreach (var file in Directory.EnumerateFiles(folder))
                 {
-                    try { File.Delete(file); _log.LogDebug("Удалён старый файл: {File}", file); }
+                    try
+                    {
+                        var size = new FileInfo(file).Length;
+                        File.Delete(file);
+                        filesDeleted++;
+                        bytesFreed += size;
+                        _log.LogDebug("Удалён старый файл: {File}", file);
+                    }
                     catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
                     {
                         _log.LogWarning(ex, "Не удалось удалить {File}", file);
@@ -395,6 +438,7 @@ public sealed class AudioWriter
                     if (!Directory.EnumerateFileSystemEntries(folder).Any())
                     {
                         Directory.Delete(folder);
+                        foldersDeleted++;
                         _log.LogDebug("Удалена пустая папка: {Folder}", folder);
                     }
                 }
@@ -407,6 +451,16 @@ public sealed class AudioWriter
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NotSupportedException or ArgumentException)
         {
             _log.LogWarning(ex, "Чистка устаревших записей прервана: {SavePath}", _config.SavePath);
+        }
+        finally
+        {
+            Volatile.Write(ref _cleanupRunning, 0);
+            // UpdateRetention may have been skipped by the overlap guard while this pass ran with
+            // the old value — run again so the new retention isn't deferred to the next hourly tick.
+            if (_retentionDays != retentionDays) _ = Task.Run(RunCleanupSafe);
+            if (filesDeleted > 0 || foldersDeleted > 0)
+                _log.LogInformation("Чистка устаревших записей (срок {Days} дн.): удалено файлов {Files}, папок {Folders}, освобождено {Gb:F1} ГБ",
+                    retentionDays, filesDeleted, foldersDeleted, bytesFreed / 1024.0 / 1024 / 1024);
         }
     }
 

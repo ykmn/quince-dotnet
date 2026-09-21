@@ -2611,3 +2611,17 @@ README.md: убраны инструкции про Recovery-вкладку и �
 Реализовано в ветке `feature/radioplayer-token` (вариант 1 — авто-получение токена, флаг на канал): новый `Quince.Service/Audio/RadioplayerAuth.cs` — `ApplyTokenAsync` дёргает `api.radioplayer.ru/api/web/site/gts` и подставляет `st`/`gts` в URL (чистая часть подстановки вынесена в `internal static ApplyToken(url, st, gts)` — тестируется без сети), плюс константа `RefererHeaderArg` для ffmpeg `-headers`. Новое поле `SourceConfig.RadioplayerToken` (чекбокс «Токен radioplayer.ru (CDN radio-holding.ru)» в `ChannelEditDialog.razor`, ru/en локализация). `FfmpegPipedCapture.BuildArgs()` стал `BuildArgsAsync(CancellationToken)` (обновлены обе реализации — `StreamCapture` и `LivewireCapture`), т.к. `StreamCapture.BuildArgsAsync` теперь при включённом флаге асинхронно получает свежий токен перед КАЖДОЙ попыткой (пере)подключения (токен недолговечен) и добавляет `-headers "Referer: https://radioplayer.ru/\r\n"` в аргументы ffmpeg; при ошибке получения токена — не бросает исключение, а логирует предупреждение и подключается без токена (обычный цикл переподключения разберётся). `ChannelEngine`: прокинул флаг в конструктор `StreamCapture`, добавил в `PipelineChanged` (смена флага теперь пересоздаёт капчер).
 
 Тесты: `StreamCaptureTests` — 2 новых (`-headers` не добавляется без токена / добавляется и стоит раньше `-i` с флагом), новый файл `RadioplayerAuthTests.cs` — 3 теста на чистую `ApplyToken` (без query, с заменой протухшего `st`/`gts`, с сохранением постороннего параметра). `dotnet build` чистый (0/0), полный прогон тестов — 255 зелёных (было 250, +5 новых). Живое подключение к `marusya_default` через это изменение не проверялось (нет ffmpeg/сети на потоковый CDN в этой среде) — только сама HTTP-механика проверена вручную curl'ом. Версия обновлена до 1.00.065, `docs/CHANGELOG.md` дополнен.
+
+---
+
+## 168
+
+**Запрос:**
+> Проверь код: старые записи не удаляются автоматически; при уменьшении срока хранения старые записи тоже не удаляются. Лог на \emg-logger4\c$\Quince\log
+>
+> (Далее:) В какое время или периодичность должны удаляться старые аудиозаписи?
+>
+> (Далее:) continue
+
+**Ответ:** Расследование на \emg-logger4: развёрнутая сборка = HEAD, логика удаления верна (тесты зелёные), но на диске остались просроченные папки (у PGM3/PGM4 при сроке 7 дней — по 13), диск переполнен с 21.09 22:00. Найдено два дефекта: (1) `CleanupOldFiles` вызывалась только при старте канала и из `MaybeRotate` при смене даты — а `MaybeRotate` работает лишь при открытом файле, поэтому у каналов с детектором тишины и при ffmpeg-crash-loop из-за «No space left» чистка не срабатывала (порочный круг); (2) `ChannelEngine.UpdateConfig` не передавал новый `RetentionDays` уже работающему `AudioWriter` (он в `PipelineChanged` не входит). Исправление: `AudioWriter` получил собственный `Timer` (сразу при старте, затем раз в час; защита от наложения проходов через `Interlocked`), вызов из `MaybeRotate` убран, добавлен `UpdateRetention(int)`, который вызывается из `ChannelEngine.UpdateConfig` и сразу запускает чистку; проход, удаливший файлы, пишет INFO-итог (файлы/папки/ГБ). Добавлен тест `UpdateRetention_ShortenedOnRunningWriter_DeletesNewlyExpiredFolders`. Версия 1.00.066, `docs/CHANGELOG.md` обновлён. Замечание вне правки: `log_level: DEBUG` в settings.yaml не даёт DEBUG-строк в файле (фреймворк по умолчанию отсекает Debug) — не менялось.
+
