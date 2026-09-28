@@ -14,8 +14,8 @@
         ],
         "tags": [
           {
-            "tag": "application",
-            "value": "quince"
+            "tag": "Application",
+            "value": "Quince"
           }
         ],
         "items": [
@@ -38,8 +38,8 @@
             ],
             "tags": [
               {
-                "tag": "application",
-                "value": "quince"
+                "tag": "Application",
+                "value": "Quince"
               }
             ]
           },
@@ -65,8 +65,8 @@
             },
             "tags": [
               {
-                "tag": "application",
-                "value": "quince"
+                "tag": "Application",
+                "value": "Quince"
               }
             ],
             "units": "unixtime",
@@ -78,8 +78,8 @@
                 "priority": "HIGH",
                 "tags": [
                   {
-                    "tag": "application",
-                    "value": "quince"
+                    "tag": "Application",
+                    "value": "Quince"
                   }
                 ]
               }
@@ -107,8 +107,8 @@
             },
             "tags": [
               {
-                "tag": "application",
-                "value": "quince"
+                "tag": "Application",
+                "value": "Quince"
               }
             ]
           }
@@ -182,15 +182,15 @@
                 },
                 "tags": [
                   {
-                    "tag": "application",
-                    "value": "quince"
+                    "tag": "Application",
+                    "value": "Quince"
                   },
                   {
-                    "tag": "channel",
+                    "tag": "Channel",
                     "value": "{#CHANNEL.NAME}"
                   },
                   {
-                    "tag": "source",
+                    "tag": "Source",
                     "value": "{#CHANNEL.SOURCE}"
                   }
                 ]
@@ -218,15 +218,15 @@
                 },
                 "tags": [
                   {
-                    "tag": "application",
-                    "value": "quince"
+                    "tag": "Application",
+                    "value": "Quince"
                   },
                   {
-                    "tag": "channel",
+                    "tag": "Channel",
                     "value": "{#CHANNEL.NAME}"
                   },
                   {
-                    "tag": "source",
+                    "tag": "Source",
                     "value": "{#CHANNEL.SOURCE}"
                   }
                 ],
@@ -257,15 +257,15 @@
                 },
                 "tags": [
                   {
-                    "tag": "application",
-                    "value": "quince"
+                    "tag": "Application",
+                    "value": "Quince"
                   },
                   {
-                    "tag": "channel",
+                    "tag": "Channel",
                     "value": "{#CHANNEL.NAME}"
                   },
                   {
-                    "tag": "source",
+                    "tag": "Source",
                     "value": "{#CHANNEL.SOURCE}"
                   }
                 ],
@@ -280,11 +280,11 @@
                     "priority": "WARNING",
                     "tags": [
                       {
-                        "tag": "application",
-                        "value": "quince"
+                        "tag": "Application",
+                        "value": "Quince"
                       },
                       {
-                        "tag": "channel",
+                        "tag": "Channel",
                         "value": "{#CHANNEL.NAME}"
                       }
                     ]
@@ -314,15 +314,15 @@
                 },
                 "tags": [
                   {
-                    "tag": "application",
-                    "value": "quince"
+                    "tag": "Application",
+                    "value": "Quince"
                   },
                   {
-                    "tag": "channel",
+                    "tag": "Channel",
                     "value": "{#CHANNEL.NAME}"
                   },
                   {
-                    "tag": "source",
+                    "tag": "Source",
                     "value": "{#CHANNEL.SOURCE}"
                   }
                 ],
@@ -337,11 +337,11 @@
                     "priority": "WARNING",
                     "tags": [
                       {
-                        "tag": "application",
-                        "value": "quince"
+                        "tag": "Application",
+                        "value": "Quince"
                       },
                       {
-                        "tag": "channel",
+                        "tag": "Channel",
                         "value": "{#CHANNEL.NAME}"
                       }
                     ]
@@ -371,15 +371,15 @@
                 },
                 "tags": [
                   {
-                    "tag": "application",
-                    "value": "quince"
+                    "tag": "Application",
+                    "value": "Quince"
                   },
                   {
-                    "tag": "channel",
+                    "tag": "Channel",
                     "value": "{#CHANNEL.NAME}"
                   },
                   {
-                    "tag": "source",
+                    "tag": "Source",
                     "value": "{#CHANNEL.SOURCE}"
                   }
                 ],
@@ -394,11 +394,11 @@
                     "priority": "WARNING",
                     "tags": [
                       {
-                        "tag": "application",
-                        "value": "quince"
+                        "tag": "Application",
+                        "value": "Quince"
                       },
                       {
-                        "tag": "channel",
+                        "tag": "Channel",
                         "value": "{#CHANNEL.NAME}"
                       }
                     ]
@@ -428,15 +428,15 @@
                 },
                 "tags": [
                   {
-                    "tag": "application",
-                    "value": "quince"
+                    "tag": "Application",
+                    "value": "Quince"
                   },
                   {
-                    "tag": "channel",
+                    "tag": "Channel",
                     "value": "{#CHANNEL.NAME}"
                   },
                   {
-                    "tag": "source",
+                    "tag": "Source",
                     "value": "{#CHANNEL.SOURCE}"
                   }
                 ],
@@ -451,11 +451,11 @@
                     "priority": "HIGH",
                     "tags": [
                       {
-                        "tag": "application",
-                        "value": "quince"
+                        "tag": "Application",
+                        "value": "Quince"
                       },
                       {
-                        "tag": "channel",
+                        "tag": "Channel",
                         "value": "{#CHANNEL.NAME}"
                       }
                     ]
@@ -485,15 +485,15 @@
                 },
                 "tags": [
                   {
-                    "tag": "application",
-                    "value": "quince"
+                    "tag": "Application",
+                    "value": "Quince"
                   },
                   {
-                    "tag": "channel",
+                    "tag": "Channel",
                     "value": "{#CHANNEL.NAME}"
                   },
                   {
-                    "tag": "source",
+                    "tag": "Source",
                     "value": "{#CHANNEL.SOURCE}"
                   }
                 ],
@@ -508,11 +508,11 @@
                     "priority": "WARNING",
                     "tags": [
                       {
-                        "tag": "application",
-                        "value": "quince"
+                        "tag": "Application",
+                        "value": "Quince"
                       },
                       {
-                        "tag": "channel",
+                        "tag": "Channel",
                         "value": "{#CHANNEL.NAME}"
                       }
                     ],
@@ -549,15 +549,15 @@
                 },
                 "tags": [
                   {
-                    "tag": "application",
-                    "value": "quince"
+                    "tag": "Application",
+                    "value": "Quince"
                   },
                   {
-                    "tag": "channel",
+                    "tag": "Channel",
                     "value": "{#CHANNEL.NAME}"
                   },
                   {
-                    "tag": "source",
+                    "tag": "Source",
                     "value": "{#CHANNEL.SOURCE}"
                   }
                 ],
@@ -592,15 +592,15 @@
                 },
                 "tags": [
                   {
-                    "tag": "application",
-                    "value": "quince"
+                    "tag": "Application",
+                    "value": "Quince"
                   },
                   {
-                    "tag": "channel",
+                    "tag": "Channel",
                     "value": "{#CHANNEL.NAME}"
                   },
                   {
-                    "tag": "source",
+                    "tag": "Source",
                     "value": "{#CHANNEL.SOURCE}"
                   }
                 ],
@@ -635,15 +635,15 @@
                 },
                 "tags": [
                   {
-                    "tag": "application",
-                    "value": "quince"
+                    "tag": "Application",
+                    "value": "Quince"
                   },
                   {
-                    "tag": "channel",
+                    "tag": "Channel",
                     "value": "{#CHANNEL.NAME}"
                   },
                   {
-                    "tag": "source",
+                    "tag": "Source",
                     "value": "{#CHANNEL.SOURCE}"
                   }
                 ],
@@ -678,15 +678,15 @@
                 },
                 "tags": [
                   {
-                    "tag": "application",
-                    "value": "quince"
+                    "tag": "Application",
+                    "value": "Quince"
                   },
                   {
-                    "tag": "channel",
+                    "tag": "Channel",
                     "value": "{#CHANNEL.NAME}"
                   },
                   {
-                    "tag": "source",
+                    "tag": "Source",
                     "value": "{#CHANNEL.SOURCE}"
                   }
                 ],
