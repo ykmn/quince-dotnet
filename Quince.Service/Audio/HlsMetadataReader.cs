@@ -38,6 +38,9 @@ public sealed class HlsMetadataReader : IMetadataReader
     private Task? _task;
     private string _lastRaw = "";
     private volatile bool _hasMetadata;
+    private long _lastReceivedMs;
+    public DateTimeOffset? LastReceivedAt => Interlocked.Read(ref _lastReceivedMs) is var value && value > 0
+        ? DateTimeOffset.FromUnixTimeMilliseconds(value) : null;
     private string? _metadataUrl;
 
     /// <param name="knownMetadataUrl">A JSON endpoint already confirmed by a previous "Определить
@@ -289,6 +292,8 @@ public sealed class HlsMetadataReader : IMetadataReader
 
     private void FireIfChanged(string artist, string title)
     {
+        if (!string.IsNullOrWhiteSpace(title))
+            Interlocked.Exchange(ref _lastReceivedMs, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
         var raw = string.IsNullOrEmpty(artist) ? title : $"{artist} - {title}";
         if (raw == _lastRaw) return;
         _lastRaw = raw;

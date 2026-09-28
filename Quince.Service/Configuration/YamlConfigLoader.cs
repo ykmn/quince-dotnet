@@ -36,6 +36,10 @@ public class YamlConfigLoader
                 var text = File.ReadAllText(file);
                 config = _deserializer.Deserialize<ChannelConfig>(text);
                 config.Filename = Path.GetFileName(file);
+                config.MonitoringId = Guid.TryParse(config.MonitoringId, out var monitoringId)
+                    ? monitoringId.ToString("N")
+                    : Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(
+                        System.Text.Encoding.UTF8.GetBytes(config.Filename.ToLowerInvariant())))[..32].ToLowerInvariant();
                 MigrateFileDurationSeconds(config, text);
             }
             catch (Exception ex)

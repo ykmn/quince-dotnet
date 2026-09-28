@@ -115,6 +115,15 @@ public class AudioEngineManager : IHostedService
         }
     }
 
+    public (EngineStatus? Status, DateTimeOffset? MetadataReceivedAt) GetMonitoringState(string channelName)
+    {
+        lock (_lock)
+        {
+            return _engines.TryGetValue(channelName, out var engine)
+                ? (engine.MonitoringStatus, engine.MetadataReceivedAt) : (null, null);
+        }
+    }
+
     public string? GetMetadataText(string channelName)
     {
         lock (_lock)

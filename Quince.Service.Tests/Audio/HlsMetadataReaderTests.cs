@@ -191,6 +191,13 @@ public class HlsMetadataReaderTests
                 Assert.NotNull(received);
                 Assert.Equal("Recovered Artist", received!.Artist);
                 Assert.Equal("Recovered Title", received!.Title);
+                // An unchanged title is still a successful metadata receipt for monitoring.
+                var firstReceipt = reader.LastReceivedAt;
+                Assert.NotNull(firstReceipt);
+                deadline = DateTimeOffset.UtcNow.AddSeconds(8);
+                while (reader.LastReceivedAt <= firstReceipt && DateTimeOffset.UtcNow < deadline)
+                    await Task.Delay(50);
+                Assert.True(reader.LastReceivedAt > firstReceipt);
             }
             finally
             {

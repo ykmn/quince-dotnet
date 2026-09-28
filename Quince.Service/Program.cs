@@ -66,6 +66,8 @@ builder.Services.AddSingleton<Quince.Service.Audio.HlsSegmentDurationService>();
 
 builder.Services.AddSingleton<AudioEngineManager>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<AudioEngineManager>());
+builder.Services.AddSingleton<ZabbixMonitoringService>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<ZabbixMonitoringService>());
 
 builder.Services.AddSingleton<Quince.Service.Audio.Livewire.LivewireDiscoveryService>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<Quince.Service.Audio.Livewire.LivewireDiscoveryService>());
@@ -122,6 +124,11 @@ app.UseRouting();
 app.Use(async (context, next) =>
 {
     var path = context.Request.Path.Value ?? "";
+    if (path.Equals(ZabbixEndpoint.Path, StringComparison.OrdinalIgnoreCase))
+    {
+        await ZabbixEndpoint.HandleAsync(context);
+        return;
+    }
     if (path.Equals("/login", StringComparison.OrdinalIgnoreCase) ||
         path.StartsWith("/api/auth/", StringComparison.OrdinalIgnoreCase))
     {

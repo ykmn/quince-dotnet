@@ -2,6 +2,8 @@ namespace Quince.Service.Configuration;
 
 public class ChannelConfig
 {
+    // Persisted on save; legacy files get a deterministic ID when loaded.
+    public string MonitoringId { get; set; } = "";
     public string Name { get; set; } = "";
     public SourceConfig Source { get; set; } = new();
     public InputFormatConfig InputFormat { get; set; } = new();

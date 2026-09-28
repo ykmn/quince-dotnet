@@ -31,6 +31,9 @@ public sealed class IcecastMetadataReader : IMetadataReader
     private Task? _task;
     private string _lastRaw = "";
     private volatile bool _hasMetadata;
+    private long _lastReceivedMs;
+    public DateTimeOffset? LastReceivedAt => Interlocked.Read(ref _lastReceivedMs) is var value && value > 0
+        ? DateTimeOffset.FromUnixTimeMilliseconds(value) : null;
 
     public IcecastMetadataReader(string url, bool allowInvalidSsl, Action<MetadataEvent>? onMetadata, string channelName, ILogger log)
     {
@@ -145,7 +148,13 @@ public sealed class IcecastMetadataReader : IMetadataReader
 
             var lenByte = stream.ReadByte();
             if (lenByte < 0) return;
-            if (lenByte == 0) continue;
+            if (lenByte == 0)
+            {
+                // ICY uses a zero-length block when the previously received title is unchanged.
+                if (_lastRaw.Length > 0)
+                    Interlocked.Exchange(ref _lastReceivedMs, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
+                continue;
+            }
 
             var metaBytes = new byte[lenByte * 16];
             if (!await ReadExactAsync(stream, metaBytes, ct)) return;
@@ -155,6 +164,8 @@ public sealed class IcecastMetadataReader : IMetadataReader
             if (!match.Success) continue;
 
             var raw = match.Groups[1].Value.Trim();
+            if (raw.Length > 0)
+                Interlocked.Exchange(ref _lastReceivedMs, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
             if (raw == _lastRaw) continue;
             _lastRaw = raw;
 
