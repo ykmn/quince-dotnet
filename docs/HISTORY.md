@@ -2625,3 +2625,17 @@ README.md: убраны инструкции про Recovery-вкладку и �
 
 **Ответ:** Расследование на \emg-logger4: развёрнутая сборка = HEAD, логика удаления верна (тесты зелёные), но на диске остались просроченные папки (у PGM3/PGM4 при сроке 7 дней — по 13), диск переполнен с 21.09 22:00. Найдено два дефекта: (1) `CleanupOldFiles` вызывалась только при старте канала и из `MaybeRotate` при смене даты — а `MaybeRotate` работает лишь при открытом файле, поэтому у каналов с детектором тишины и при ffmpeg-crash-loop из-за «No space left» чистка не срабатывала (порочный круг); (2) `ChannelEngine.UpdateConfig` не передавал новый `RetentionDays` уже работающему `AudioWriter` (он в `PipelineChanged` не входит). Исправление: `AudioWriter` получил собственный `Timer` (сразу при старте, затем раз в час; защита от наложения проходов через `Interlocked`), вызов из `MaybeRotate` убран, добавлен `UpdateRetention(int)`, который вызывается из `ChannelEngine.UpdateConfig` и сразу запускает чистку; проход, удаливший файлы, пишет INFO-итог (файлы/папки/ГБ). Добавлен тест `UpdateRetention_ShortenedOnRunningWriter_DeletesNewlyExpiredFolders`. Версия 1.00.066, `docs/CHANGELOG.md` обновлён. Замечание вне правки: `log_level: DEBUG` в settings.yaml не даёт DEBUG-строк в файле (фреймворк по умолчанию отсекает Debug) — не менялось.
 
+---
+
+## 169
+
+**Запрос:**
+> Нужна совместимость с Zabbix 6 и Agent v1. Не будет ли у агента проблем с http-авторизацией?
+>
+> (Далее:) Исправь скрипт zabbix\quince-monitoring.ps1 для совместимости с Powershell 2 и проверь на совместимость с Powershell 5 и Core. Добавь свои замечания в zabbix\README.md
+>
+> (Далее:) корректный ли конфиг \emg-logger3\c$\Quince\config\settings.yaml ?
+>
+> (Далее:) Мы в отдельной ветке? Сделай коммит и пересобери бинарники
+
+**Ответ:** Проблем с HTTP-авторизацией у Agent нет: endpoint `/api/monitoring/zabbix` обрабатывается до проверки сессии и доступен только с прямого loopback. `quince-monitoring.ps1` переписан под PowerShell 2.0 (`HttpWebRequest`, `JavaScriptSerializer` вместо `ConvertFrom-Json`); проверен в 5.1 и 7.6 на локальном HTTP-сервере (успех, неверный JSON, 403/503/302, отказ соединения) и в ветке без `ConvertFrom-Json`; настоящий PowerShell 2.0 не запускался. В `zabbix/README.md` добавлены раздел про версии PowerShell, правило про `;` в `urls` и поправлена диагностика (старая сборка отвечает 401). Конфиг `emg-logger3`: `urls` содержит два адреса через запятую — `UseUrls` делит только по `;`, при следующем перезапуске службы это, скорее всего, помешает запуску; файл не менялся. Работа ведётся в ветке `feature/zabbix-monitoring`; версия 1.00.067, `docs/CHANGELOG.md` обновлён, сборка в `release.00.067`.

@@ -76,6 +76,8 @@ public sealed class ChannelEngine
     /// <summary>Last "Artist - Title" (or raw string) detected by the metadata reader, or null if
     /// none has been detected yet (or metadata isn't configured for this channel).</summary>
     public string? MetadataText => _metadataText;
+    public DateTimeOffset? MetadataReceivedAt => _metadataReader?.LastReceivedAt;
+    public EngineStatus MonitoringStatus => Status with { IsFileRecording = _writer?.IsWriting == true };
 
     /// <summary>Exposes the running channel's raw audio to an extra consumer (e.g. output monitoring
     /// playback) alongside the meter/writer/silence-detector consumers already subscribed internally.

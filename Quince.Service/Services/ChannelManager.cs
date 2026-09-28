@@ -88,6 +88,7 @@ public class ChannelManager : IHostedService
         lock (_lock)
         {
             config.Filename = GenerateFilenameLocked(config.Name);
+            config.MonitoringId = Guid.NewGuid().ToString("N");
             _loader.Save(_stationsDir, config);
             _channels.Add(config);
             using (_logger.BeginScope(new Dictionary<string, object> { ["Channel"] = config.Name }))
@@ -119,6 +120,7 @@ public class ChannelManager : IHostedService
             }
 
             updated.Filename = newFilename;
+            updated.MonitoringId = old.MonitoringId;
             _loader.Save(_stationsDir, updated);
             if (newFilename != filename)
             {
@@ -144,6 +146,7 @@ public class ChannelManager : IHostedService
             clone = _loader.Clone(source);
             clone.Name = MakeUniqueNameLocked(source.Name + " (копия)");
             clone.Filename = GenerateFilenameLocked(clone.Name);
+            clone.MonitoringId = Guid.NewGuid().ToString("N");
             clone.AutoStart = false; // don't race two engines against the same source right after cloning
             _loader.Save(_stationsDir, clone);
             _channels.Add(clone);

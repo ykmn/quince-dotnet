@@ -39,6 +39,7 @@ public sealed class AudioWriter
 
     private CancellationTokenSource? _cts;
     private Task? _task;
+    private long _lastWriteTimestamp;
 
     // Retention cleanup is driven by its own timer (immediately on Start, then hourly), NOT by the
     // recording loop: it used to run only from MaybeRotate at a date rollover, which never fires
@@ -66,6 +67,20 @@ public sealed class AudioWriter
 
     public string? CurrentFile => _currentFile;
     public bool IsRunning => _task is { IsCompleted: false };
+
+    /// <summary>Monitoring signal: live encoder, active recording and a successful input write
+    /// in the last 15 seconds. Unlike the UI's writer-present flag, drops on encoder failure.</summary>
+    public bool IsWriting
+    {
+        get
+        {
+            var last = Interlocked.Read(ref _lastWriteTimestamp);
+            if (!_recordingActive || !IsRunning || last == 0 ||
+                Stopwatch.GetElapsedTime(last) > TimeSpan.FromSeconds(15)) return false;
+            try { return _proc is { HasExited: false }; }
+            catch (InvalidOperationException) { return false; }
+        }
+    }
 
     /// <summary>OS process ID of the currently-open output ffmpeg process, for the admin "Монитор
     /// ресурсов" dialog (<see cref="Services.ProcessMonitorService"/>) — null between files (rotation)
@@ -208,6 +223,7 @@ public sealed class AudioWriter
             var bytes = new byte[chunk.Samples.Length * sizeof(float)];
             Buffer.BlockCopy(chunk.Samples, 0, bytes, 0, bytes.Length);
             await _proc.StandardInput.BaseStream.WriteAsync(bytes, ct);
+            Interlocked.Exchange(ref _lastWriteTimestamp, Stopwatch.GetTimestamp());
         }
         catch (Exception ex) when (ex is IOException or ObjectDisposedException)
         {
@@ -272,6 +288,7 @@ public sealed class AudioWriter
 
     private void CloseProc(bool crashed = false)
     {
+        Interlocked.Exchange(ref _lastWriteTimestamp, 0);
         if (_proc == null) return;
         var ageSec = _openTime.HasValue ? (DateTime.Now - _openTime.Value).TotalSeconds : 0.0;
 

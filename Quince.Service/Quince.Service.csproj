@@ -33,6 +33,7 @@
          Redistributable is installed separately, which self-contained .NET apps otherwise still need. -->
     <Content Include="redist\ucrt\*.dll" Link="%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="..\README.md" Link="README.md" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\zabbix\**" Link="zabbix\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>
