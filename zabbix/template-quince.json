@@ -190,10 +190,6 @@
                     "value": "{#CHANNEL.NAME}"
                   },
                   {
-                    "tag": "channel_id",
-                    "value": "{#CHANNEL.ID}"
-                  },
-                  {
                     "tag": "source",
                     "value": "{#CHANNEL.SOURCE}"
                   }
@@ -228,10 +224,6 @@
                   {
                     "tag": "channel",
                     "value": "{#CHANNEL.NAME}"
-                  },
-                  {
-                    "tag": "channel_id",
-                    "value": "{#CHANNEL.ID}"
                   },
                   {
                     "tag": "source",
@@ -271,10 +263,6 @@
                   {
                     "tag": "channel",
                     "value": "{#CHANNEL.NAME}"
-                  },
-                  {
-                    "tag": "channel_id",
-                    "value": "{#CHANNEL.ID}"
                   },
                   {
                     "tag": "source",
@@ -334,10 +322,6 @@
                     "value": "{#CHANNEL.NAME}"
                   },
                   {
-                    "tag": "channel_id",
-                    "value": "{#CHANNEL.ID}"
-                  },
-                  {
                     "tag": "source",
                     "value": "{#CHANNEL.SOURCE}"
                   }
@@ -393,10 +377,6 @@
                   {
                     "tag": "channel",
                     "value": "{#CHANNEL.NAME}"
-                  },
-                  {
-                    "tag": "channel_id",
-                    "value": "{#CHANNEL.ID}"
                   },
                   {
                     "tag": "source",
@@ -456,10 +436,6 @@
                     "value": "{#CHANNEL.NAME}"
                   },
                   {
-                    "tag": "channel_id",
-                    "value": "{#CHANNEL.ID}"
-                  },
-                  {
                     "tag": "source",
                     "value": "{#CHANNEL.SOURCE}"
                   }
@@ -515,10 +491,6 @@
                   {
                     "tag": "channel",
                     "value": "{#CHANNEL.NAME}"
-                  },
-                  {
-                    "tag": "channel_id",
-                    "value": "{#CHANNEL.ID}"
                   },
                   {
                     "tag": "source",
@@ -585,10 +557,6 @@
                     "value": "{#CHANNEL.NAME}"
                   },
                   {
-                    "tag": "channel_id",
-                    "value": "{#CHANNEL.ID}"
-                  },
-                  {
                     "tag": "source",
                     "value": "{#CHANNEL.SOURCE}"
                   }
@@ -630,10 +598,6 @@
                   {
                     "tag": "channel",
                     "value": "{#CHANNEL.NAME}"
-                  },
-                  {
-                    "tag": "channel_id",
-                    "value": "{#CHANNEL.ID}"
                   },
                   {
                     "tag": "source",
@@ -679,10 +643,6 @@
                     "value": "{#CHANNEL.NAME}"
                   },
                   {
-                    "tag": "channel_id",
-                    "value": "{#CHANNEL.ID}"
-                  },
-                  {
                     "tag": "source",
                     "value": "{#CHANNEL.SOURCE}"
                   }
@@ -724,10 +684,6 @@
                   {
                     "tag": "channel",
                     "value": "{#CHANNEL.NAME}"
-                  },
-                  {
-                    "tag": "channel_id",
-                    "value": "{#CHANNEL.ID}"
                   },
                   {
                     "tag": "source",
