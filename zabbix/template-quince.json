@@ -3,7 +3,7 @@
     "version": "6.0",
     "templates": [
       {
-        "uuid": "be02e8bbcfe1cc0c987614a52cd00c48",
+        "uuid": "be02e8bbcfe14c0c987614a52cd00c48",
         "template": "Quince by Zabbix agent",
         "name": "Quince by Zabbix agent",
         "description": "Quince Audio Logger. Local Agent UserParameter reads a cached snapshot. See zabbix/README.md. Forecast percentage matches the channel card (0-100); it is not disk fullness.",
@@ -20,7 +20,7 @@
         ],
         "items": [
           {
-            "uuid": "0ae92ccb588d7b42955a8f06b6857216",
+            "uuid": "0ae92ccb588d4b42955a8f06b6857216",
             "name": "Quince: Снимок мониторинга",
             "type": "ZABBIX_PASSIVE",
             "key": "quince.monitoring.get",
@@ -44,7 +44,7 @@
             ]
           },
           {
-            "uuid": "685d6305847f1e8d2d2fefc006135bf8",
+            "uuid": "685d6305847f4e8dad2fefc006135bf8",
             "name": "Quince: Время снимка",
             "type": "DEPENDENT",
             "key": "quince.monitoring.timestamp",
@@ -72,7 +72,7 @@
             "units": "unixtime",
             "triggers": [
               {
-                "uuid": "cba8fc7e1dbf340e74de17803c566ef5",
+                "uuid": "cba8fc7e1dbf440eb4de17803c566ef5",
                 "name": "Quince: Данные мониторинга отсутствуют или устарели",
                 "expression": "nodata(/Quince by Zabbix agent/quince.monitoring.timestamp,{$QUINCE.NODATA})=1 or fuzzytime(/Quince by Zabbix agent/quince.monitoring.timestamp,{$QUINCE.NODATA})=0",
                 "priority": "HIGH",
@@ -86,7 +86,7 @@
             ]
           },
           {
-            "uuid": "3168721cf96c614a717d99369ab52801",
+            "uuid": "3168721cf96c414ab17d99369ab52801",
             "name": "Quince: Количество каналов",
             "type": "DEPENDENT",
             "key": "quince.channels.count",
@@ -115,7 +115,7 @@
         ],
         "discovery_rules": [
           {
-            "uuid": "931fa18840db6964fd81f0fbdd820672",
+            "uuid": "931fa18840db4964bd81f0fbdd820672",
             "name": "Quince: Обнаружение каналов",
             "type": "DEPENDENT",
             "key": "quince.channels.discovery",
@@ -160,7 +160,7 @@
             ],
             "item_prototypes": [
               {
-                "uuid": "2194d36db69ca71d40cfb8bec3e76c1a",
+                "uuid": "2194d36db69c471d80cfb8bec3e76c1a",
                 "name": "{#CHANNEL.NAME}: Название канала",
                 "type": "DEPENDENT",
                 "key": "quince.channel.name[{#CHANNEL.ID}]",
@@ -200,7 +200,7 @@
                 ]
               },
               {
-                "uuid": "c989adb3a19aa54149b21850141b2e0e",
+                "uuid": "c989adb3a19a454189b21850141b2e0e",
                 "name": "{#CHANNEL.NAME}: Тип источника",
                 "type": "DEPENDENT",
                 "key": "quince.channel.source_type[{#CHANNEL.ID}]",
@@ -243,7 +243,7 @@
                 }
               },
               {
-                "uuid": "3aa25dd11b629a86756672ebb2d27af5",
+                "uuid": "3aa25dd11b624a86b56672ebb2d27af5",
                 "name": "{#CHANNEL.NAME}: Запись",
                 "type": "DEPENDENT",
                 "key": "quince.channel.recording[{#CHANNEL.ID}]",
@@ -286,7 +286,7 @@
                 },
                 "trigger_prototypes": [
                   {
-                    "uuid": "1e8e95478427511127a60439ba6e7220",
+                    "uuid": "1e8e954784274111a7a60439ba6e7220",
                     "name": "{#CHANNEL.NAME}: запись остановлена",
                     "expression": "({$QUINCE.RECORDING.REQUIRED:\"{#CHANNEL.ID}\"}=1 and max(/Quince by Zabbix agent/quince.channel.recording[{#CHANNEL.ID}],{$QUINCE.PROBLEM.WINDOW})=0) and nodata(/Quince by Zabbix agent/quince.monitoring.timestamp,{$QUINCE.NODATA})=0 and fuzzytime(/Quince by Zabbix agent/quince.monitoring.timestamp,{$QUINCE.NODATA})=1 and nodata(/Quince by Zabbix agent/quince.channel.recording[{#CHANNEL.ID}],{$QUINCE.NODATA})=0",
                     "priority": "WARNING",
@@ -304,7 +304,7 @@
                 ]
               },
               {
-                "uuid": "1be21e7de755d83652e954d359e75688",
+                "uuid": "1be21e7de755483692e954d359e75688",
                 "name": "{#CHANNEL.NAME}: Метаданные",
                 "type": "DEPENDENT",
                 "key": "quince.channel.metadata[{#CHANNEL.ID}]",
@@ -347,7 +347,7 @@
                 },
                 "trigger_prototypes": [
                   {
-                    "uuid": "0fed2845118d921cc47b0a12b5a9cfc0",
+                    "uuid": "0fed2845118d421c847b0a12b5a9cfc0",
                     "name": "{#CHANNEL.NAME}: метаданные не поступают",
                     "expression": "(min(/Quince by Zabbix agent/quince.channel.metadata[{#CHANNEL.ID}],{$QUINCE.PROBLEM.WINDOW})=1 and max(/Quince by Zabbix agent/quince.channel.metadata[{#CHANNEL.ID}],{$QUINCE.PROBLEM.WINDOW})=1) and nodata(/Quince by Zabbix agent/quince.monitoring.timestamp,{$QUINCE.NODATA})=0 and fuzzytime(/Quince by Zabbix agent/quince.monitoring.timestamp,{$QUINCE.NODATA})=1 and nodata(/Quince by Zabbix agent/quince.channel.metadata[{#CHANNEL.ID}],{$QUINCE.NODATA})=0",
                     "priority": "WARNING",
@@ -365,7 +365,7 @@
                 ]
               },
               {
-                "uuid": "0bfc95085866645ebe35aaca8810e55a",
+                "uuid": "0bfc95085866445ebe35aaca8810e55a",
                 "name": "{#CHANNEL.NAME}: Звук",
                 "type": "DEPENDENT",
                 "key": "quince.channel.audio[{#CHANNEL.ID}]",
@@ -408,7 +408,7 @@
                 },
                 "trigger_prototypes": [
                   {
-                    "uuid": "9107b494aa36fdffa7ede0b6c72674e8",
+                    "uuid": "9107b494aa364dffa7ede0b6c72674e8",
                     "name": "{#CHANNEL.NAME}: тишина в канале",
                     "expression": "(min(/Quince by Zabbix agent/quince.channel.audio[{#CHANNEL.ID}],{$QUINCE.PROBLEM.WINDOW})=1 and max(/Quince by Zabbix agent/quince.channel.audio[{#CHANNEL.ID}],{$QUINCE.PROBLEM.WINDOW})=1) and nodata(/Quince by Zabbix agent/quince.monitoring.timestamp,{$QUINCE.NODATA})=0 and fuzzytime(/Quince by Zabbix agent/quince.monitoring.timestamp,{$QUINCE.NODATA})=1 and nodata(/Quince by Zabbix agent/quince.channel.audio[{#CHANNEL.ID}],{$QUINCE.NODATA})=0",
                     "priority": "WARNING",
@@ -426,7 +426,7 @@
                 ]
               },
               {
-                "uuid": "a93bd911b1ba58b64a8d3d2987bb5c80",
+                "uuid": "a93bd911b1ba48b68a8d3d2987bb5c80",
                 "name": "{#CHANNEL.NAME}: Ошибка канала",
                 "type": "DEPENDENT",
                 "key": "quince.channel.error[{#CHANNEL.ID}]",
@@ -469,7 +469,7 @@
                 },
                 "trigger_prototypes": [
                   {
-                    "uuid": "5bb0cf73abd3c5203d4ae26dba8d8bdc",
+                    "uuid": "5bb0cf73abd34520bd4ae26dba8d8bdc",
                     "name": "{#CHANNEL.NAME}: ошибка аудиодвижка",
                     "expression": "(last(/Quince by Zabbix agent/quince.channel.error[{#CHANNEL.ID}])=1) and nodata(/Quince by Zabbix agent/quince.monitoring.timestamp,{$QUINCE.NODATA})=0 and fuzzytime(/Quince by Zabbix agent/quince.monitoring.timestamp,{$QUINCE.NODATA})=1 and nodata(/Quince by Zabbix agent/quince.channel.error[{#CHANNEL.ID}],{$QUINCE.NODATA})=0",
                     "priority": "HIGH",
@@ -487,7 +487,7 @@
                 ]
               },
               {
-                "uuid": "61ac7b4da3a6a3e7403495c49c0b6bb6",
+                "uuid": "61ac7b4da3a643e7803495c49c0b6bb6",
                 "name": "{#CHANNEL.NAME}: Объём папки доступен",
                 "type": "DEPENDENT",
                 "key": "quince.channel.disk_available[{#CHANNEL.ID}]",
@@ -530,7 +530,7 @@
                 },
                 "trigger_prototypes": [
                   {
-                    "uuid": "339d9b1c46858392f9e49a32d8884d17",
+                    "uuid": "339d9b1c46854392b9e49a32d8884d17",
                     "name": "{#CHANNEL.NAME}: не удалось измерить объём папки",
                     "expression": "count(/Quince by Zabbix agent/quince.channel.disk_available[{#CHANNEL.ID}],15m)>=30 and (max(/Quince by Zabbix agent/quince.channel.disk_available[{#CHANNEL.ID}],15m)=0) and nodata(/Quince by Zabbix agent/quince.monitoring.timestamp,{$QUINCE.NODATA})=0 and fuzzytime(/Quince by Zabbix agent/quince.monitoring.timestamp,{$QUINCE.NODATA})=1 and nodata(/Quince by Zabbix agent/quince.channel.disk_available[{#CHANNEL.ID}],{$QUINCE.NODATA})=0",
                     "priority": "WARNING",
@@ -549,7 +549,7 @@
                 ]
               },
               {
-                "uuid": "0cf28984def6043242f503fdd2f64506",
+                "uuid": "0cf28984def6443282f503fdd2f64506",
                 "name": "{#CHANNEL.NAME}: Объём записей относительно прогноза",
                 "type": "DEPENDENT",
                 "key": "quince.channel.forecast_pct[{#CHANNEL.ID}]",
@@ -596,7 +596,7 @@
                 "units": "%"
               },
               {
-                "uuid": "5b09499494dd03969c21b6f7591b5427",
+                "uuid": "5b09499494dd43969c21b6f7591b5427",
                 "name": "{#CHANNEL.NAME}: Текущий объём папки",
                 "type": "DEPENDENT",
                 "key": "quince.channel.used_bytes[{#CHANNEL.ID}]",
@@ -643,7 +643,7 @@
                 "units": "B"
               },
               {
-                "uuid": "4f7c113a8bdd2587e47aaa3287bf544c",
+                "uuid": "4f7c113a8bdd4587a47aaa3287bf544c",
                 "name": "{#CHANNEL.NAME}: Прогноз объёма за срок хранения",
                 "type": "DEPENDENT",
                 "key": "quince.channel.forecast_bytes[{#CHANNEL.ID}]",
@@ -690,7 +690,7 @@
                 "units": "B"
               },
               {
-                "uuid": "b4ed60fa3cccda31a581334b132148fc",
+                "uuid": "b4ed60fa3ccc4a31a581334b132148fc",
                 "name": "{#CHANNEL.NAME}: Время измерения объёма папки",
                 "type": "DEPENDENT",
                 "key": "quince.channel.disk_scanned_at[{#CHANNEL.ID}]",
@@ -739,7 +739,7 @@
             ],
             "graph_prototypes": [
               {
-                "uuid": "379dbb8122d184b82d0d9e5888f73154",
+                "uuid": "379dbb8122d144b8ad0d9e5888f73154",
                 "name": "{#CHANNEL.NAME}: Объём относительно прогноза",
                 "yaxismin": "0",
                 "yaxismax": "100",
@@ -777,7 +777,7 @@
         ],
         "valuemaps": [
           {
-            "uuid": "bbc20fb50e96b2f7e1a55efca36d35a9",
+            "uuid": "bbc20fb50e9642f7a1a55efca36d35a9",
             "name": "Quince source",
             "mappings": [
               {
@@ -795,7 +795,7 @@
             ]
           },
           {
-            "uuid": "15ec70953dad7da9a256436096cd088e",
+            "uuid": "15ec70953dad4da9a256436096cd088e",
             "name": "Quince recording",
             "mappings": [
               {
@@ -809,7 +809,7 @@
             ]
           },
           {
-            "uuid": "7b3df52c5b6b14ed025b1d4912e1d774",
+            "uuid": "7b3df52c5b6b44ed825b1d4912e1d774",
             "name": "Quince metadata",
             "mappings": [
               {
@@ -827,7 +827,7 @@
             ]
           },
           {
-            "uuid": "9c3e1af6d4c751a93041fb9dc46d416d",
+            "uuid": "9c3e1af6d4c741a9b041fb9dc46d416d",
             "name": "Quince audio",
             "mappings": [
               {
@@ -845,7 +845,7 @@
             ]
           },
           {
-            "uuid": "ae9c8b71b3be10d049719e39af55e5c6",
+            "uuid": "ae9c8b71b3be40d089719e39af55e5c6",
             "name": "Quince error",
             "mappings": [
               {
@@ -859,7 +859,7 @@
             ]
           },
           {
-            "uuid": "38573ec2459263bd80b292bcbc2d3f56",
+            "uuid": "38573ec2459243bd80b292bcbc2d3f56",
             "name": "Quince available",
             "mappings": [
               {
@@ -877,7 +877,7 @@
     ],
     "groups": [
       {
-        "uuid": "ecef8b31cad7753be353c8649b697be3",
+        "uuid": "ecef8b31cad7453ba353c8649b697be3",
         "name": "Templates/Quince"
       }
     ]
