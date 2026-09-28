@@ -1,0 +1,1086 @@
+{
+  "zabbix_export": {
+    "version": "7.0",
+    "template_groups": [
+      {
+        "uuid": "ecef8b31cad7453ba353c8649b697be3",
+        "name": "Templates/Quince"
+      }
+    ],
+    "templates": [
+      {
+        "uuid": "be02e8bbcfe14c0c987614a52cd00c48",
+        "template": "Quince by Zabbix agent",
+        "name": "Quince by Zabbix agent",
+        "description": "Quince Audio Logger. Local Agent UserParameter reads a cached snapshot. See zabbix/README.md. Forecast percentage matches the channel card (0-100); it is not disk fullness.",
+        "groups": [
+          {
+            "name": "Templates/Quince"
+          }
+        ],
+        "tags": [
+          {
+            "tag": "Application",
+            "value": "Quince"
+          }
+        ],
+        "items": [
+          {
+            "uuid": "0ae92ccb588d4b42955a8f06b6857216",
+            "name": "Quince: Снимок мониторинга",
+            "type": "ZABBIX_PASSIVE",
+            "key": "quince.monitoring.get",
+            "delay": "30s",
+            "history": "0",
+            "value_type": "TEXT",
+            "trends": "0",
+            "preprocessing": [
+              {
+                "type": "JAVASCRIPT",
+                "parameters": [
+                  "var d = JSON.parse(value); if (d.schema_version !== 1 || !Array.isArray(d.channels) || typeof d.generated_at !== \"number\") { throw \"Invalid Quince snapshot\"; } return value;"
+                ]
+              }
+            ],
+            "tags": [
+              {
+                "tag": "Application",
+                "value": "Quince"
+              }
+            ]
+          },
+          {
+            "uuid": "685d6305847f4e8dad2fefc006135bf8",
+            "name": "Quince: Время снимка",
+            "type": "DEPENDENT",
+            "key": "quince.monitoring.timestamp",
+            "delay": "0",
+            "history": "7d",
+            "value_type": "UNSIGNED",
+            "trends": "90d",
+            "preprocessing": [
+              {
+                "type": "JSONPATH",
+                "parameters": [
+                  "$.generated_at"
+                ]
+              }
+            ],
+            "master_item": {
+              "key": "quince.monitoring.get"
+            },
+            "tags": [
+              {
+                "tag": "Application",
+                "value": "Quince"
+              }
+            ],
+            "units": "unixtime",
+            "triggers": [
+              {
+                "uuid": "cba8fc7e1dbf440eb4de17803c566ef5",
+                "name": "Quince: Данные мониторинга отсутствуют или устарели",
+                "expression": "nodata(/Quince by Zabbix agent/quince.monitoring.timestamp,{$QUINCE.NODATA})=1 or fuzzytime(/Quince by Zabbix agent/quince.monitoring.timestamp,{$QUINCE.NODATA})=0",
+                "priority": "HIGH",
+                "tags": [
+                  {
+                    "tag": "Application",
+                    "value": "Quince"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "uuid": "3168721cf96c414ab17d99369ab52801",
+            "name": "Quince: Количество каналов",
+            "type": "DEPENDENT",
+            "key": "quince.channels.count",
+            "delay": "0",
+            "history": "7d",
+            "value_type": "UNSIGNED",
+            "trends": "90d",
+            "preprocessing": [
+              {
+                "type": "JSONPATH",
+                "parameters": [
+                  "$.channels.length()"
+                ]
+              }
+            ],
+            "master_item": {
+              "key": "quince.monitoring.get"
+            },
+            "tags": [
+              {
+                "tag": "Application",
+                "value": "Quince"
+              }
+            ]
+          }
+        ],
+        "discovery_rules": [
+          {
+            "uuid": "931fa18840db4964bd81f0fbdd820672",
+            "name": "Quince: Обнаружение каналов",
+            "type": "DEPENDENT",
+            "key": "quince.channels.discovery",
+            "delay": "0",
+            "lifetime": "7d",
+            "preprocessing": [
+              {
+                "type": "JSONPATH",
+                "parameters": [
+                  "$.channels"
+                ]
+              },
+              {
+                "type": "JAVASCRIPT",
+                "parameters": [
+                  "return JSON.stringify(JSON.parse(value).map(function(c) { return {id:c.id,name:c.name,source_type:c.source_type}; }));"
+                ]
+              },
+              {
+                "type": "DISCARD_UNCHANGED_HEARTBEAT",
+                "parameters": [
+                  "1h"
+                ]
+              }
+            ],
+            "master_item": {
+              "key": "quince.monitoring.get"
+            },
+            "lld_macro_paths": [
+              {
+                "lld_macro": "{#CHANNEL.ID}",
+                "path": "$.id"
+              },
+              {
+                "lld_macro": "{#CHANNEL.NAME}",
+                "path": "$.name"
+              },
+              {
+                "lld_macro": "{#CHANNEL.SOURCE}",
+                "path": "$.source_type"
+              }
+            ],
+            "item_prototypes": [
+              {
+                "uuid": "2194d36db69c471d80cfb8bec3e76c1a",
+                "name": "{#CHANNEL.NAME}: Название канала",
+                "type": "DEPENDENT",
+                "key": "quince.channel.name[{#CHANNEL.ID}]",
+                "delay": "0",
+                "history": "7d",
+                "value_type": "CHAR",
+                "trends": "0",
+                "preprocessing": [
+                  {
+                    "type": "JSONPATH",
+                    "parameters": [
+                      "$.channels[?(@.id == \"{#CHANNEL.ID}\")].name.first()"
+                    ],
+                    "error_handler": "DISCARD_VALUE"
+                  }
+                ],
+                "master_item": {
+                  "key": "quince.monitoring.get"
+                },
+                "tags": [
+                  {
+                    "tag": "Application",
+                    "value": "Quince"
+                  },
+                  {
+                    "tag": "Channel",
+                    "value": "{#CHANNEL.NAME}"
+                  },
+                  {
+                    "tag": "Source",
+                    "value": "{#CHANNEL.SOURCE}"
+                  }
+                ]
+              },
+              {
+                "uuid": "c989adb3a19a454189b21850141b2e0e",
+                "name": "{#CHANNEL.NAME}: Тип источника",
+                "type": "DEPENDENT",
+                "key": "quince.channel.source_type[{#CHANNEL.ID}]",
+                "delay": "0",
+                "history": "7d",
+                "value_type": "CHAR",
+                "trends": "0",
+                "preprocessing": [
+                  {
+                    "type": "JSONPATH",
+                    "parameters": [
+                      "$.channels[?(@.id == \"{#CHANNEL.ID}\")].source_type.first()"
+                    ],
+                    "error_handler": "DISCARD_VALUE"
+                  }
+                ],
+                "master_item": {
+                  "key": "quince.monitoring.get"
+                },
+                "tags": [
+                  {
+                    "tag": "Application",
+                    "value": "Quince"
+                  },
+                  {
+                    "tag": "Channel",
+                    "value": "{#CHANNEL.NAME}"
+                  },
+                  {
+                    "tag": "Source",
+                    "value": "{#CHANNEL.SOURCE}"
+                  }
+                ],
+                "valuemap": {
+                  "name": "Quince source"
+                }
+              },
+              {
+                "uuid": "3aa25dd11b624a86b56672ebb2d27af5",
+                "name": "{#CHANNEL.NAME}: Запись",
+                "type": "DEPENDENT",
+                "key": "quince.channel.recording[{#CHANNEL.ID}]",
+                "delay": "0",
+                "history": "7d",
+                "value_type": "UNSIGNED",
+                "trends": "90d",
+                "preprocessing": [
+                  {
+                    "type": "JSONPATH",
+                    "parameters": [
+                      "$.channels[?(@.id == \"{#CHANNEL.ID}\")].recording.first()"
+                    ],
+                    "error_handler": "DISCARD_VALUE"
+                  }
+                ],
+                "master_item": {
+                  "key": "quince.monitoring.get"
+                },
+                "tags": [
+                  {
+                    "tag": "Application",
+                    "value": "Quince"
+                  },
+                  {
+                    "tag": "Channel",
+                    "value": "{#CHANNEL.NAME}"
+                  },
+                  {
+                    "tag": "Source",
+                    "value": "{#CHANNEL.SOURCE}"
+                  }
+                ],
+                "valuemap": {
+                  "name": "Quince recording"
+                },
+                "trigger_prototypes": [
+                  {
+                    "uuid": "1e8e954784274111a7a60439ba6e7220",
+                    "name": "{#CHANNEL.NAME}: запись остановлена",
+                    "expression": "({$QUINCE.RECORDING.REQUIRED:\"{#CHANNEL.ID}\"}=1 and max(/Quince by Zabbix agent/quince.channel.recording[{#CHANNEL.ID}],{$QUINCE.PROBLEM.WINDOW})=0) and nodata(/Quince by Zabbix agent/quince.monitoring.timestamp,{$QUINCE.NODATA})=0 and fuzzytime(/Quince by Zabbix agent/quince.monitoring.timestamp,{$QUINCE.NODATA})=1 and nodata(/Quince by Zabbix agent/quince.channel.recording[{#CHANNEL.ID}],{$QUINCE.NODATA})=0",
+                    "priority": "WARNING",
+                    "tags": [
+                      {
+                        "tag": "Application",
+                        "value": "Quince"
+                      },
+                      {
+                        "tag": "Channel",
+                        "value": "{#CHANNEL.NAME}"
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "uuid": "1be21e7de755483692e954d359e75688",
+                "name": "{#CHANNEL.NAME}: Метаданные",
+                "type": "DEPENDENT",
+                "key": "quince.channel.metadata[{#CHANNEL.ID}]",
+                "delay": "0",
+                "history": "7d",
+                "value_type": "UNSIGNED",
+                "trends": "90d",
+                "preprocessing": [
+                  {
+                    "type": "JSONPATH",
+                    "parameters": [
+                      "$.channels[?(@.id == \"{#CHANNEL.ID}\")].metadata.first()"
+                    ],
+                    "error_handler": "DISCARD_VALUE"
+                  }
+                ],
+                "master_item": {
+                  "key": "quince.monitoring.get"
+                },
+                "tags": [
+                  {
+                    "tag": "Application",
+                    "value": "Quince"
+                  },
+                  {
+                    "tag": "Channel",
+                    "value": "{#CHANNEL.NAME}"
+                  },
+                  {
+                    "tag": "Source",
+                    "value": "{#CHANNEL.SOURCE}"
+                  }
+                ],
+                "valuemap": {
+                  "name": "Quince metadata"
+                },
+                "trigger_prototypes": [
+                  {
+                    "uuid": "0fed2845118d421c847b0a12b5a9cfc0",
+                    "name": "{#CHANNEL.NAME}: метаданные не поступают",
+                    "expression": "(min(/Quince by Zabbix agent/quince.channel.metadata[{#CHANNEL.ID}],{$QUINCE.PROBLEM.WINDOW})=1 and max(/Quince by Zabbix agent/quince.channel.metadata[{#CHANNEL.ID}],{$QUINCE.PROBLEM.WINDOW})=1) and nodata(/Quince by Zabbix agent/quince.monitoring.timestamp,{$QUINCE.NODATA})=0 and fuzzytime(/Quince by Zabbix agent/quince.monitoring.timestamp,{$QUINCE.NODATA})=1 and nodata(/Quince by Zabbix agent/quince.channel.metadata[{#CHANNEL.ID}],{$QUINCE.NODATA})=0",
+                    "priority": "WARNING",
+                    "tags": [
+                      {
+                        "tag": "Application",
+                        "value": "Quince"
+                      },
+                      {
+                        "tag": "Channel",
+                        "value": "{#CHANNEL.NAME}"
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "uuid": "0bfc95085866445ebe35aaca8810e55a",
+                "name": "{#CHANNEL.NAME}: Звук",
+                "type": "DEPENDENT",
+                "key": "quince.channel.audio[{#CHANNEL.ID}]",
+                "delay": "0",
+                "history": "7d",
+                "value_type": "UNSIGNED",
+                "trends": "90d",
+                "preprocessing": [
+                  {
+                    "type": "JSONPATH",
+                    "parameters": [
+                      "$.channels[?(@.id == \"{#CHANNEL.ID}\")].audio.first()"
+                    ],
+                    "error_handler": "DISCARD_VALUE"
+                  }
+                ],
+                "master_item": {
+                  "key": "quince.monitoring.get"
+                },
+                "tags": [
+                  {
+                    "tag": "Application",
+                    "value": "Quince"
+                  },
+                  {
+                    "tag": "Channel",
+                    "value": "{#CHANNEL.NAME}"
+                  },
+                  {
+                    "tag": "Source",
+                    "value": "{#CHANNEL.SOURCE}"
+                  }
+                ],
+                "valuemap": {
+                  "name": "Quince audio"
+                },
+                "trigger_prototypes": [
+                  {
+                    "uuid": "9107b494aa364dffa7ede0b6c72674e8",
+                    "name": "{#CHANNEL.NAME}: тишина в канале",
+                    "expression": "(min(/Quince by Zabbix agent/quince.channel.audio[{#CHANNEL.ID}],{$QUINCE.PROBLEM.WINDOW})=1 and max(/Quince by Zabbix agent/quince.channel.audio[{#CHANNEL.ID}],{$QUINCE.PROBLEM.WINDOW})=1) and nodata(/Quince by Zabbix agent/quince.monitoring.timestamp,{$QUINCE.NODATA})=0 and fuzzytime(/Quince by Zabbix agent/quince.monitoring.timestamp,{$QUINCE.NODATA})=1 and nodata(/Quince by Zabbix agent/quince.channel.audio[{#CHANNEL.ID}],{$QUINCE.NODATA})=0",
+                    "priority": "WARNING",
+                    "tags": [
+                      {
+                        "tag": "Application",
+                        "value": "Quince"
+                      },
+                      {
+                        "tag": "Channel",
+                        "value": "{#CHANNEL.NAME}"
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "uuid": "a93bd911b1ba48b68a8d3d2987bb5c80",
+                "name": "{#CHANNEL.NAME}: Ошибка канала",
+                "type": "DEPENDENT",
+                "key": "quince.channel.error[{#CHANNEL.ID}]",
+                "delay": "0",
+                "history": "7d",
+                "value_type": "UNSIGNED",
+                "trends": "90d",
+                "preprocessing": [
+                  {
+                    "type": "JSONPATH",
+                    "parameters": [
+                      "$.channels[?(@.id == \"{#CHANNEL.ID}\")].error.first()"
+                    ],
+                    "error_handler": "DISCARD_VALUE"
+                  }
+                ],
+                "master_item": {
+                  "key": "quince.monitoring.get"
+                },
+                "tags": [
+                  {
+                    "tag": "Application",
+                    "value": "Quince"
+                  },
+                  {
+                    "tag": "Channel",
+                    "value": "{#CHANNEL.NAME}"
+                  },
+                  {
+                    "tag": "Source",
+                    "value": "{#CHANNEL.SOURCE}"
+                  }
+                ],
+                "valuemap": {
+                  "name": "Quince error"
+                },
+                "trigger_prototypes": [
+                  {
+                    "uuid": "5bb0cf73abd34520bd4ae26dba8d8bdc",
+                    "name": "{#CHANNEL.NAME}: ошибка аудиодвижка",
+                    "expression": "(last(/Quince by Zabbix agent/quince.channel.error[{#CHANNEL.ID}])=1) and nodata(/Quince by Zabbix agent/quince.monitoring.timestamp,{$QUINCE.NODATA})=0 and fuzzytime(/Quince by Zabbix agent/quince.monitoring.timestamp,{$QUINCE.NODATA})=1 and nodata(/Quince by Zabbix agent/quince.channel.error[{#CHANNEL.ID}],{$QUINCE.NODATA})=0",
+                    "priority": "HIGH",
+                    "tags": [
+                      {
+                        "tag": "Application",
+                        "value": "Quince"
+                      },
+                      {
+                        "tag": "Channel",
+                        "value": "{#CHANNEL.NAME}"
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "uuid": "61ac7b4da3a643e7803495c49c0b6bb6",
+                "name": "{#CHANNEL.NAME}: Объём папки доступен",
+                "type": "DEPENDENT",
+                "key": "quince.channel.disk_available[{#CHANNEL.ID}]",
+                "delay": "0",
+                "history": "7d",
+                "value_type": "UNSIGNED",
+                "trends": "90d",
+                "preprocessing": [
+                  {
+                    "type": "JSONPATH",
+                    "parameters": [
+                      "$.channels[?(@.id == \"{#CHANNEL.ID}\")].disk_available.first()"
+                    ],
+                    "error_handler": "DISCARD_VALUE"
+                  }
+                ],
+                "master_item": {
+                  "key": "quince.monitoring.get"
+                },
+                "tags": [
+                  {
+                    "tag": "Application",
+                    "value": "Quince"
+                  },
+                  {
+                    "tag": "Channel",
+                    "value": "{#CHANNEL.NAME}"
+                  },
+                  {
+                    "tag": "Source",
+                    "value": "{#CHANNEL.SOURCE}"
+                  }
+                ],
+                "valuemap": {
+                  "name": "Quince available"
+                },
+                "trigger_prototypes": [
+                  {
+                    "uuid": "339d9b1c46854392b9e49a32d8884d17",
+                    "name": "{#CHANNEL.NAME}: не удалось измерить объём папки",
+                    "expression": "count(/Quince by Zabbix agent/quince.channel.disk_available[{#CHANNEL.ID}],15m)>=30 and (max(/Quince by Zabbix agent/quince.channel.disk_available[{#CHANNEL.ID}],15m)=0) and nodata(/Quince by Zabbix agent/quince.monitoring.timestamp,{$QUINCE.NODATA})=0 and fuzzytime(/Quince by Zabbix agent/quince.monitoring.timestamp,{$QUINCE.NODATA})=1 and nodata(/Quince by Zabbix agent/quince.channel.disk_available[{#CHANNEL.ID}],{$QUINCE.NODATA})=0",
+                    "priority": "WARNING",
+                    "tags": [
+                      {
+                        "tag": "Application",
+                        "value": "Quince"
+                      },
+                      {
+                        "tag": "Channel",
+                        "value": "{#CHANNEL.NAME}"
+                      }
+                    ],
+                    "description": "Требуются минимум 30 измерений за последние 15 минут, все со значением 0. При штатном опросе каждые 30 секунд первая тревога возможна на 30-м измерении: через 14 минут 30 секунд после первого значения 0 (примерно 15 минут). Пропуски опросов задерживают срабатывание; при изменении интервала опроса скорректируйте порог count. Свежесть проверяется и для канала, и для общего снимка."
+                  }
+                ]
+              },
+              {
+                "uuid": "0cf28984def6443282f503fdd2f64506",
+                "name": "{#CHANNEL.NAME}: Объём записей относительно прогноза",
+                "type": "DEPENDENT",
+                "key": "quince.channel.forecast_pct[{#CHANNEL.ID}]",
+                "delay": "0",
+                "history": "7d",
+                "value_type": "FLOAT",
+                "trends": "90d",
+                "preprocessing": [
+                  {
+                    "type": "JSONPATH",
+                    "parameters": [
+                      "$.channels[?(@.id == \"{#CHANNEL.ID}\")].forecast_pct.first()"
+                    ],
+                    "error_handler": "DISCARD_VALUE"
+                  },
+                  {
+                    "type": "JAVASCRIPT",
+                    "parameters": [
+                      "if (value === \"null\" || value === \"\") { return null; } return value;"
+                    ]
+                  }
+                ],
+                "master_item": {
+                  "key": "quince.monitoring.get"
+                },
+                "tags": [
+                  {
+                    "tag": "Application",
+                    "value": "Quince"
+                  },
+                  {
+                    "tag": "Channel",
+                    "value": "{#CHANNEL.NAME}"
+                  },
+                  {
+                    "tag": "Source",
+                    "value": "{#CHANNEL.SOURCE}"
+                  }
+                ],
+                "units": "%"
+              },
+              {
+                "uuid": "5b09499494dd43969c21b6f7591b5427",
+                "name": "{#CHANNEL.NAME}: Текущий объём папки",
+                "type": "DEPENDENT",
+                "key": "quince.channel.used_bytes[{#CHANNEL.ID}]",
+                "delay": "0",
+                "history": "7d",
+                "value_type": "UNSIGNED",
+                "trends": "90d",
+                "preprocessing": [
+                  {
+                    "type": "JSONPATH",
+                    "parameters": [
+                      "$.channels[?(@.id == \"{#CHANNEL.ID}\")].used_bytes.first()"
+                    ],
+                    "error_handler": "DISCARD_VALUE"
+                  },
+                  {
+                    "type": "JAVASCRIPT",
+                    "parameters": [
+                      "if (value === \"null\" || value === \"\") { return null; } return value;"
+                    ]
+                  }
+                ],
+                "master_item": {
+                  "key": "quince.monitoring.get"
+                },
+                "tags": [
+                  {
+                    "tag": "Application",
+                    "value": "Quince"
+                  },
+                  {
+                    "tag": "Channel",
+                    "value": "{#CHANNEL.NAME}"
+                  },
+                  {
+                    "tag": "Source",
+                    "value": "{#CHANNEL.SOURCE}"
+                  }
+                ],
+                "units": "B"
+              },
+              {
+                "uuid": "4f7c113a8bdd4587a47aaa3287bf544c",
+                "name": "{#CHANNEL.NAME}: Прогноз объёма за срок хранения",
+                "type": "DEPENDENT",
+                "key": "quince.channel.forecast_bytes[{#CHANNEL.ID}]",
+                "delay": "0",
+                "history": "7d",
+                "value_type": "UNSIGNED",
+                "trends": "90d",
+                "preprocessing": [
+                  {
+                    "type": "JSONPATH",
+                    "parameters": [
+                      "$.channels[?(@.id == \"{#CHANNEL.ID}\")].forecast_bytes.first()"
+                    ],
+                    "error_handler": "DISCARD_VALUE"
+                  },
+                  {
+                    "type": "JAVASCRIPT",
+                    "parameters": [
+                      "if (value === \"null\" || value === \"\") { return null; } return value;"
+                    ]
+                  }
+                ],
+                "master_item": {
+                  "key": "quince.monitoring.get"
+                },
+                "tags": [
+                  {
+                    "tag": "Application",
+                    "value": "Quince"
+                  },
+                  {
+                    "tag": "Channel",
+                    "value": "{#CHANNEL.NAME}"
+                  },
+                  {
+                    "tag": "Source",
+                    "value": "{#CHANNEL.SOURCE}"
+                  }
+                ],
+                "units": "B"
+              },
+              {
+                "uuid": "b4ed60fa3ccc4a31a581334b132148fc",
+                "name": "{#CHANNEL.NAME}: Время измерения объёма папки",
+                "type": "DEPENDENT",
+                "key": "quince.channel.disk_scanned_at[{#CHANNEL.ID}]",
+                "delay": "0",
+                "history": "7d",
+                "value_type": "UNSIGNED",
+                "trends": "90d",
+                "preprocessing": [
+                  {
+                    "type": "JSONPATH",
+                    "parameters": [
+                      "$.channels[?(@.id == \"{#CHANNEL.ID}\")].disk_scanned_at.first()"
+                    ],
+                    "error_handler": "DISCARD_VALUE"
+                  },
+                  {
+                    "type": "JAVASCRIPT",
+                    "parameters": [
+                      "if (value === \"null\" || value === \"\") { return null; } return value;"
+                    ]
+                  }
+                ],
+                "master_item": {
+                  "key": "quince.monitoring.get"
+                },
+                "tags": [
+                  {
+                    "tag": "Application",
+                    "value": "Quince"
+                  },
+                  {
+                    "tag": "Channel",
+                    "value": "{#CHANNEL.NAME}"
+                  },
+                  {
+                    "tag": "Source",
+                    "value": "{#CHANNEL.SOURCE}"
+                  }
+                ],
+                "units": "unixtime"
+              }
+            ],
+            "graph_prototypes": [
+              {
+                "uuid": "379dbb8122d144b8ad0d9e5888f73154",
+                "name": "{#CHANNEL.NAME}: Объём относительно прогноза",
+                "yaxismin": "0",
+                "yaxismax": "100",
+                "ymin_type_1": "FIXED",
+                "ymax_type_1": "FIXED",
+                "graph_items": [
+                  {
+                    "color": "199C0D",
+                    "item": {
+                      "host": "Quince by Zabbix agent",
+                      "key": "quince.channel.forecast_pct[{#CHANNEL.ID}]"
+                    }
+                  }
+                ]
+              },
+              {
+                "uuid": "7f0ff3a81b5440c8ab9ff1611552e11f",
+                "name": "{#CHANNEL.NAME}: Запись и ошибка движка",
+                "yaxismin": "0",
+                "yaxismax": "1",
+                "ymin_type_1": "FIXED",
+                "ymax_type_1": "FIXED",
+                "graph_items": [
+                  {
+                    "color": "199C0D",
+                    "item": {
+                      "host": "Quince by Zabbix agent",
+                      "key": "quince.channel.recording[{#CHANNEL.ID}]"
+                    }
+                  },
+                  {
+                    "color": "F63100",
+                    "item": {
+                      "host": "Quince by Zabbix agent",
+                      "key": "quince.channel.error[{#CHANNEL.ID}]"
+                    }
+                  }
+                ]
+              },
+              {
+                "uuid": "396aef968ee64565b4b2a951379f3b2a",
+                "name": "{#CHANNEL.NAME}: Метаданные и звук",
+                "yaxismin": "0",
+                "yaxismax": "2",
+                "ymin_type_1": "FIXED",
+                "ymax_type_1": "FIXED",
+                "graph_items": [
+                  {
+                    "color": "2774A4",
+                    "item": {
+                      "host": "Quince by Zabbix agent",
+                      "key": "quince.channel.metadata[{#CHANNEL.ID}]"
+                    }
+                  },
+                  {
+                    "color": "A54F10",
+                    "item": {
+                      "host": "Quince by Zabbix agent",
+                      "key": "quince.channel.audio[{#CHANNEL.ID}]"
+                    }
+                  }
+                ]
+              },
+              {
+                "uuid": "555db7fb11204e38bd368736089359dc",
+                "name": "{#CHANNEL.NAME}: Размер папки и прогноз",
+                "ymin_type_1": "FIXED",
+                "yaxismin": "0",
+                "graph_items": [
+                  {
+                    "color": "199C0D",
+                    "item": {
+                      "host": "Quince by Zabbix agent",
+                      "key": "quince.channel.used_bytes[{#CHANNEL.ID}]"
+                    }
+                  },
+                  {
+                    "color": "9E9E9E",
+                    "item": {
+                      "host": "Quince by Zabbix agent",
+                      "key": "quince.channel.forecast_bytes[{#CHANNEL.ID}]"
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "macros": [
+          {
+            "macro": "{$QUINCE.NODATA}",
+            "value": "3m",
+            "description": "Максимальный возраст снимка / интервал отсутствия данных."
+          },
+          {
+            "macro": "{$QUINCE.PROBLEM.WINDOW}",
+            "value": "2m",
+            "description": "Окно проверки остановки записи, тишины и отсутствия метаданных."
+          },
+          {
+            "macro": "{$QUINCE.RECORDING.REQUIRED}",
+            "value": "0",
+            "description": "1 — тревога при остановке; 0 — только статус. Можно переопределить контекстом monitoring_id канала."
+          }
+        ],
+        "valuemaps": [
+          {
+            "uuid": "bbc20fb50e9642f7a1a55efca36d35a9",
+            "name": "Quince source",
+            "mappings": [
+              {
+                "value": "soundcard",
+                "newvalue": "Звуковая карта"
+              },
+              {
+                "value": "livewire",
+                "newvalue": "Livewire"
+              },
+              {
+                "value": "stream",
+                "newvalue": "Интернет-поток"
+              }
+            ]
+          },
+          {
+            "uuid": "15ec70953dad4da9a256436096cd088e",
+            "name": "Quince recording",
+            "mappings": [
+              {
+                "value": "0",
+                "newvalue": "Остановлена"
+              },
+              {
+                "value": "1",
+                "newvalue": "Запущена"
+              }
+            ]
+          },
+          {
+            "uuid": "7b3df52c5b6b44ed825b1d4912e1d774",
+            "name": "Quince metadata",
+            "mappings": [
+              {
+                "value": "0",
+                "newvalue": "Не указаны"
+              },
+              {
+                "value": "1",
+                "newvalue": "Не поступают"
+              },
+              {
+                "value": "2",
+                "newvalue": "Поступают"
+              }
+            ]
+          },
+          {
+            "uuid": "9c3e1af6d4c741a9b041fb9dc46d416d",
+            "name": "Quince audio",
+            "mappings": [
+              {
+                "value": "0",
+                "newvalue": "Неизвестно / нет аудиоданных"
+              },
+              {
+                "value": "1",
+                "newvalue": "Тишина"
+              },
+              {
+                "value": "2",
+                "newvalue": "Есть звук"
+              }
+            ]
+          },
+          {
+            "uuid": "ae9c8b71b3be40d089719e39af55e5c6",
+            "name": "Quince error",
+            "mappings": [
+              {
+                "value": "0",
+                "newvalue": "Нет ошибки"
+              },
+              {
+                "value": "1",
+                "newvalue": "Ошибка"
+              }
+            ]
+          },
+          {
+            "uuid": "38573ec2459243bd80b292bcbc2d3f56",
+            "name": "Quince available",
+            "mappings": [
+              {
+                "value": "0",
+                "newvalue": "Недоступен"
+              },
+              {
+                "value": "1",
+                "newvalue": "Доступен"
+              }
+            ]
+          }
+        ],
+        "dashboards": [
+          {
+            "uuid": "65ae0cafdf544ed181a9b6c6dcc39326",
+            "name": "Quince: Обзор",
+            "pages": [
+              {
+                "widgets": [
+                  {
+                    "type": "item",
+                    "name": "Количество каналов",
+                    "width": "12",
+                    "height": "3",
+                    "fields": [
+                      {
+                        "type": "ITEM",
+                        "name": "itemid.0",
+                        "value": {
+                          "host": "Quince by Zabbix agent",
+                          "key": "quince.channels.count"
+                        }
+                      }
+                    ]
+                  },
+                  {
+                    "type": "item",
+                    "name": "Время снимка",
+                    "x": "12",
+                    "width": "12",
+                    "height": "3",
+                    "fields": [
+                      {
+                        "type": "ITEM",
+                        "name": "itemid.0",
+                        "value": {
+                          "host": "Quince by Zabbix agent",
+                          "key": "quince.monitoring.timestamp"
+                        }
+                      }
+                    ]
+                  },
+                  {
+                    "type": "graphprototype",
+                    "name": "Запись и ошибка движка",
+                    "y": "3",
+                    "width": "12",
+                    "height": "9",
+                    "fields": [
+                      {
+                        "type": "GRAPH_PROTOTYPE",
+                        "name": "graphid.0",
+                        "value": {
+                          "host": "Quince by Zabbix agent",
+                          "name": "{#CHANNEL.NAME}: Запись и ошибка движка"
+                        }
+                      },
+                      {
+                        "type": "INTEGER",
+                        "name": "columns",
+                        "value": "2"
+                      },
+                      {
+                        "type": "INTEGER",
+                        "name": "rows",
+                        "value": "2"
+                      },
+                      {
+                        "type": "STRING",
+                        "name": "reference",
+                        "value": "QRECR"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "graphprototype",
+                    "name": "Метаданные и звук",
+                    "x": "12",
+                    "y": "3",
+                    "width": "12",
+                    "height": "9",
+                    "fields": [
+                      {
+                        "type": "GRAPH_PROTOTYPE",
+                        "name": "graphid.0",
+                        "value": {
+                          "host": "Quince by Zabbix agent",
+                          "name": "{#CHANNEL.NAME}: Метаданные и звук"
+                        }
+                      },
+                      {
+                        "type": "INTEGER",
+                        "name": "columns",
+                        "value": "2"
+                      },
+                      {
+                        "type": "INTEGER",
+                        "name": "rows",
+                        "value": "2"
+                      },
+                      {
+                        "type": "STRING",
+                        "name": "reference",
+                        "value": "QMETA"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "graphprototype",
+                    "name": "Прогноз объёма",
+                    "y": "12",
+                    "width": "12",
+                    "height": "9",
+                    "fields": [
+                      {
+                        "type": "GRAPH_PROTOTYPE",
+                        "name": "graphid.0",
+                        "value": {
+                          "host": "Quince by Zabbix agent",
+                          "name": "{#CHANNEL.NAME}: Объём относительно прогноза"
+                        }
+                      },
+                      {
+                        "type": "INTEGER",
+                        "name": "columns",
+                        "value": "2"
+                      },
+                      {
+                        "type": "INTEGER",
+                        "name": "rows",
+                        "value": "2"
+                      },
+                      {
+                        "type": "STRING",
+                        "name": "reference",
+                        "value": "QFCST"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "graphprototype",
+                    "name": "Размер папки и прогноз",
+                    "x": "12",
+                    "y": "12",
+                    "width": "12",
+                    "height": "9",
+                    "fields": [
+                      {
+                        "type": "GRAPH_PROTOTYPE",
+                        "name": "graphid.0",
+                        "value": {
+                          "host": "Quince by Zabbix agent",
+                          "name": "{#CHANNEL.NAME}: Размер папки и прогноз"
+                        }
+                      },
+                      {
+                        "type": "INTEGER",
+                        "name": "columns",
+                        "value": "2"
+                      },
+                      {
+                        "type": "INTEGER",
+                        "name": "rows",
+                        "value": "2"
+                      },
+                      {
+                        "type": "STRING",
+                        "name": "reference",
+                        "value": "QSIZE"
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}
