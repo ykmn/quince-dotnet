@@ -28,6 +28,16 @@ public class ZabbixMonitoringTests
     }
 
     [Fact]
+    public void ReconnectAttempt_IsReportedForZabbix()
+    {
+        var config = new ChannelConfig { Name = "Радио", Filename = "radio.yaml" };
+        var reconnecting = ChannelTelemetry.Create(config, new EngineStatus(IsRecording: true, ReconnectAttempt: 7),
+            null, null, null, null, Now);
+        Assert.Equal(7, reconnecting.ReconnectAttempt);
+        Assert.Equal(0, ChannelTelemetry.Create(config, null, null, null, null, null, Now).ReconnectAttempt);
+    }
+
+    [Fact]
     public void MetadataExpires_AndStaleAudioIsNotReportedAsSound()
     {
         var config = new ChannelConfig { Source = new SourceConfig { MetadataUrl = "icy" } };

@@ -19,6 +19,9 @@ public sealed class HlsMetadataReader : IMetadataReader
     // Not const/readonly so tests can shrink these instead of waiting through the real cadence.
     internal static TimeSpan PollInterval = TimeSpan.FromSeconds(5);
     internal static TimeSpan JsonPollTimeout = TimeSpan.FromSeconds(5);
+    /// <summary>Repeated identical poll failures are logged at most this often (plus once on the first
+    /// failure, on a change of reason, and on recovery) — a dead endpoint used to log every 5s.</summary>
+    internal static TimeSpan FailureLogInterval = TimeSpan.FromMinutes(1);
     internal static int DiscoveryAttempts = 3;
     internal static TimeSpan DiscoveryRetryDelay = TimeSpan.FromSeconds(3);
     internal static TimeSpan BackgroundResolveInterval = TimeSpan.FromMinutes(2);
@@ -249,6 +252,21 @@ public sealed class HlsMetadataReader : IMetadataReader
         }
     }
 
+    /// <summary>Poll cadence while the endpoint keeps failing: normal for the first two failures,
+    /// then 6× (5s → 30s) up to ten failures, then 12× (→ 60s). Back to normal on the first success.</summary>
+    internal static TimeSpan NextPollDelay(int consecutiveFailures) =>
+        consecutiveFailures < 3 ? PollInterval
+        : consecutiveFailures < 10 ? TimeSpan.FromTicks(PollInterval.Ticks * 6)
+        : TimeSpan.FromTicks(PollInterval.Ticks * 12);
+
+    internal static string DescribeFailure(Exception ex) => ex switch
+    {
+        HttpRequestException { StatusCode: { } code } => $"HTTP {(int)code}",
+        HttpRequestException h => h.Message,
+        TaskCanceledException => "таймаут запроса",
+        _ => ex.GetType().Name + ": " + ex.Message,
+    };
+
     private async Task JsonPollLoopAsync(CancellationToken ct)
     {
         // One HttpClient/HttpClientHandler for the whole polling session (this loop normally runs
@@ -259,6 +277,10 @@ public sealed class HlsMetadataReader : IMetadataReader
         // channels' audio capture for 1-2+ seconds (see docs/HISTORY.md #54/#55).
         using var client = MetadataHttp.CreateClient(_allowInvalidSsl, JsonPollTimeout);
 
+        var failures = 0;
+        string? lastReason = null;
+        var lastLoggedAt = DateTime.MinValue;
+
         while (!ct.IsCancellationRequested)
         {
             try
@@ -267,6 +289,12 @@ public sealed class HlsMetadataReader : IMetadataReader
                 var result = ExtractFromJson(data);
                 if (result != null)
                     FireIfChanged(result.Value.Artist, result.Value.Title);
+                if (failures > 0)
+                {
+                    _log.LogInformation("Метаданные HLS: источник снова отвечает (ошибок подряд было: {Failures})", failures);
+                    failures = 0;
+                    lastReason = null;
+                }
             }
             // The filter matters: HttpClient's own request timeout also throws
             // OperationCanceledException (a TaskCanceledException), completely independently of
@@ -282,10 +310,24 @@ public sealed class HlsMetadataReader : IMetadataReader
             }
             catch (Exception ex)
             {
-                _log.LogWarning(ex, "Ошибка получения метаданных JSON");
+                failures++;
+                var reason = DescribeFailure(ex);
+                var now = DateTime.UtcNow;
+                if (failures == 1 || reason != lastReason || now - lastLoggedAt >= FailureLogInterval)
+                {
+                    // An HTTP status / timeout is fully described by its reason line; the stack trace
+                    // of a failed EnsureSuccessStatusCode only added ~5 lines of noise per poll.
+                    if (ex is HttpRequestException or TaskCanceledException)
+                        _log.LogWarning("Ошибка получения метаданных JSON: {Reason} ({Url}), ошибок подряд: {Failures}",
+                            reason, _metadataUrl, failures);
+                    else
+                        _log.LogWarning(ex, "Ошибка получения метаданных JSON");
+                    lastReason = reason;
+                    lastLoggedAt = now;
+                }
             }
 
-            try { await Task.Delay(PollInterval, ct); }
+            try { await Task.Delay(NextPollDelay(failures), ct); }
             catch (OperationCanceledException) { break; }
         }
     }
