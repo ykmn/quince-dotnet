@@ -86,7 +86,7 @@ public sealed class SoundcardCapture : IAudioCapture
         _cts?.Cancel();
         _status = StreamStatus.Stopped;
         DisposeCapture();
-        try { _task?.Wait(TimeSpan.FromSeconds(10)); } catch (AggregateException) { }
+        StopWait.Wait(_task, TimeSpan.FromSeconds(10), _log, "SoundcardCapture._task");
         _task = null;
     }
 

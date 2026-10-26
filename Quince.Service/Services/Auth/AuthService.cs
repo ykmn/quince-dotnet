@@ -231,8 +231,10 @@ public class AuthService
         if (!_sessions.TryGetValue(token, out var session)) return null;
         if (DateTimeOffset.UtcNow.ToUnixTimeSeconds() > session.Expires)
         {
+            // In-memory removal only: persisting on every expired-token request meant a full file
+            // rewrite per request. Expired entries are dropped from disk by the next Save (login /
+            // logout) and ignored on load anyway.
             _sessions.TryRemove(token, out _);
-            SavePersistedSessions();
             return null;
         }
         return session;

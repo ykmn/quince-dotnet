@@ -120,7 +120,7 @@ public sealed class LevelMeter
     public void Stop()
     {
         _cts?.Cancel();
-        try { _task?.Wait(TimeSpan.FromSeconds(2)); } catch (AggregateException) { }
+        StopWait.Wait(_task, TimeSpan.FromSeconds(2), _log, "LevelMeter._task");
         _cts = null;
         _task = null;
         _decayTimer?.Dispose();

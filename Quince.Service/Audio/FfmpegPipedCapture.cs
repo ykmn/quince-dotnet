@@ -126,7 +126,7 @@ public abstract class FfmpegPipedCapture : IAudioCapture
         {
             try { proc.Kill(entireProcessTree: true); } catch { /* already exited */ }
         }
-        try { _task?.Wait(TimeSpan.FromSeconds(10)); } catch (AggregateException) { }
+        StopWait.Wait(_task, TimeSpan.FromSeconds(10), Log, "FfmpegPipedCapture._task");
         _task = null;
         _process = null;
         OnStopped();

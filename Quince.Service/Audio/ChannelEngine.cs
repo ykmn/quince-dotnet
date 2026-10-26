@@ -191,7 +191,7 @@ public sealed class ChannelEngine
         {
             var silenceReader = _capture.Subscribe("silence");
             _silence = new SilenceDetector(_config.SilenceDetector, silenceReader, OnSilence, OnSound,
-                _loggerFactory.CreateLogger("SilenceDetector"), _config.Name);
+                _loggerFactory.CreateLogger("SilenceDetector"), _config.Name, _capture.SampleRate);
         }
 
         try
@@ -246,7 +246,7 @@ public sealed class ChannelEngine
         using var scope = log.BeginScope(new Dictionary<string, object> { ["Channel"] = _config.Name });
 
         _monitorCts?.Cancel();
-        try { _monitorTask?.Wait(TimeSpan.FromSeconds(2)); } catch (AggregateException) { }
+        StopWait.Wait(_monitorTask, TimeSpan.FromSeconds(2), log, "ChannelEngine._monitorTask");
         _monitorCts = null;
         _monitorTask = null;
 

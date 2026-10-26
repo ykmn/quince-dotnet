@@ -17,6 +17,9 @@ public class ChannelManager : IHostedService
     private readonly string _stationsDir;
     private readonly object _lock = new();
     private readonly List<ChannelConfig> _channels = new();
+    // Immutable copy handed to readers (polled every ~500ms per channel plus UI renders); rebuilt only
+    // after a mutation instead of copying the list on every read. Guarded by _lock like _channels.
+    private ChannelConfig[]? _snapshot;
 
     public string ConfigDir => _configDir;
 
@@ -34,7 +37,7 @@ public class ChannelManager : IHostedService
 
     public IReadOnlyList<ChannelConfig> Channels
     {
-        get { lock (_lock) { return _channels.ToList(); } }
+        get { lock (_lock) { return _snapshot ??= _channels.ToArray(); } }
     }
 
     public ChannelManager(YamlConfigLoader loader, ILogger<ChannelManager> logger, IConfiguration configuration)
@@ -54,10 +57,10 @@ public class ChannelManager : IHostedService
 
         lock (_lock)
         {
-            _channels.Clear();
+            _channels.Clear(); _snapshot = null;
             foreach (var config in _loader.LoadAll(_stationsDir))
             {
-                _channels.Add(config);
+                _channels.Add(config); _snapshot = null;
                 using (_logger.BeginScope(new Dictionary<string, object> { ["Channel"] = config.Name }))
                 {
                     _logger.LogInformation("Канал загружен из {File}", config.Filename);
@@ -90,7 +93,7 @@ public class ChannelManager : IHostedService
             config.Filename = GenerateFilenameLocked(config.Name);
             config.MonitoringId = Guid.NewGuid().ToString("N");
             _loader.Save(_stationsDir, config);
-            _channels.Add(config);
+            _channels.Add(config); _snapshot = null;
             using (_logger.BeginScope(new Dictionary<string, object> { ["Channel"] = config.Name }))
                 _logger.LogInformation("Канал создан ({File})", config.Filename);
         }
@@ -128,7 +131,7 @@ public class ChannelManager : IHostedService
                 try { File.Delete(oldPath); }
                 catch (IOException ex) { _logger.LogWarning(ex, "Не удалось удалить старый файл конфига {File} после переименования", filename); }
             }
-            _channels[index] = updated;
+            _channels[index] = updated; _snapshot = null;
             using (_logger.BeginScope(new Dictionary<string, object> { ["Channel"] = updated.Name }))
                 _logger.LogInformation("Канал обновлён ({File})", newFilename);
         }
@@ -149,7 +152,7 @@ public class ChannelManager : IHostedService
             clone.MonitoringId = Guid.NewGuid().ToString("N");
             clone.AutoStart = false; // don't race two engines against the same source right after cloning
             _loader.Save(_stationsDir, clone);
-            _channels.Add(clone);
+            _channels.Add(clone); _snapshot = null;
             using (_logger.BeginScope(new Dictionary<string, object> { ["Channel"] = clone.Name }))
                 _logger.LogInformation("Канал клонирован из '{Source}' ({File})", source.Name, clone.Filename);
         }
@@ -165,7 +168,7 @@ public class ChannelManager : IHostedService
             var index = _channels.FindIndex(c => c.Filename == filename);
             if (index < 0) return;
             removed = _channels[index];
-            _channels.RemoveAt(index);
+            _channels.RemoveAt(index); _snapshot = null;
             var path = Path.Combine(_stationsDir, filename);
             using (_logger.BeginScope(new Dictionary<string, object> { ["Channel"] = removed.Name }))
             {
@@ -214,8 +217,8 @@ public class ChannelManager : IHostedService
                     updated.Add((old, cfg));
             }
 
-            _channels.Clear();
-            _channels.AddRange(fresh);
+            _channels.Clear(); _snapshot = null;
+            _channels.AddRange(fresh); _snapshot = null;
         }
 
         _logger.LogInformation("Конфигурация обновлена: {Added} новых, {Updated} изменено, {Removed} удалено",
