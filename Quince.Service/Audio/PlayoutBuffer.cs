@@ -195,7 +195,8 @@ public sealed class PlayoutBuffer
         lock (_queueLock)
         {
             _queue.Enqueue(chunk);
-            _queuedSeconds += chunk.FrameCount / (double)_sampleRate;
+            // Only the warm-up needs the running total; once primed it is never read again.
+            if (!_primed) _queuedSeconds += chunk.FrameCount / (double)_sampleRate;
             justPrimed = !_primed && _queuedSeconds >= _targetDelaySeconds;
             if (justPrimed)
             {

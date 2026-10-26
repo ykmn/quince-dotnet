@@ -104,11 +104,12 @@ public class LoginLockoutTracker
 
         var ipState = _ips.GetOrAdd(ip, _ => new IpState());
         int events;
-        lock (ipState) { events = ++ipState.LockoutEvents; }
-
-        if (events < Math.Max(1, cfg.MaxLockoutCycles)) return;
-
-        lock (ipState) { ipState.BlockedUntil = DateTimeOffset.UtcNow.AddSeconds(Math.Max(1, cfg.IpLockoutSeconds)); }
+        lock (ipState)
+        {
+            events = ++ipState.LockoutEvents;
+            if (events < Math.Max(1, cfg.MaxLockoutCycles)) return;
+            ipState.BlockedUntil = DateTimeOffset.UtcNow.AddSeconds(Math.Max(1, cfg.IpLockoutSeconds));
+        }
         _logger.LogWarning(
             "IP-адрес {Ip} заблокирован на {Seconds}с — с него подряд зафиксировано {Count} блокировок учётных записей (последняя — «{User}»)",
             ip, cfg.IpLockoutSeconds, events, username);

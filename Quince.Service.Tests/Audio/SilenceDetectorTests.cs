@@ -36,6 +36,19 @@ public class SilenceDetectorTests
     }
 
     [Fact]
+    public void ProcessLevel_UsesRealChunkDuration()
+    {
+        var config = new SilenceDetectorConfig { Enabled = true, ThresholdDbfs = -60, TriggerSeconds = 1.0, ResumeSeconds = 0.1 };
+        var detector = CreateDetector(config, out var events);
+
+        // Five 0.25 s chunks = 1.25 s; with the old fixed 0.1 s/chunk this would still be 0.5 s.
+        for (var i = 0; i < 3; i++) detector.ProcessLevel(-90, 0.25);
+        Assert.Empty(events);
+        detector.ProcessLevel(-90, 0.25);
+        Assert.Equal(new[] { "silence" }, events);
+    }
+
+    [Fact]
     public void ProcessLevel_AboveThreshold_NeverTriggersSilence()
     {
         var config = new SilenceDetectorConfig { Enabled = true, ThresholdDbfs = -60, TriggerSeconds = 0.2, ResumeSeconds = 0.1 };

@@ -137,7 +137,7 @@ public sealed class AudioWriter
         _cleanupTimer?.Dispose();
         _cleanupTimer = null;
         _cts?.Cancel();
-        try { _task?.Wait(TimeSpan.FromSeconds(10)); } catch (AggregateException) { }
+        StopWait.Wait(_task, TimeSpan.FromSeconds(10), _log, "AudioWriter._task");
         _cts = null;
         _task = null;
         CloseProc();

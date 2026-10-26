@@ -58,7 +58,7 @@ public sealed class IcecastMetadataReader : IMetadataReader
     public void Stop()
     {
         _cts?.Cancel();
-        try { _task?.Wait(TimeSpan.FromSeconds(15)); } catch (AggregateException) { }
+        StopWait.Wait(_task, TimeSpan.FromSeconds(15), _log, "IcecastMetadataReader._task");
         _cts = null;
         _task = null;
     }
