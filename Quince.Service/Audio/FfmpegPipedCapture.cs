@@ -42,6 +42,11 @@ public abstract class FfmpegPipedCapture : IAudioCapture
 
     private volatile StreamStatus _status = StreamStatus.Stopped;
     private volatile int _reconnectAttempt;
+    // ffmpeg opened the input but found no audio stream in it (HLS playlist swapped segments or an
+    // ad break is mid-flip; exit code -22, "Stream map '' matches no streams"). Usually gone within a
+    // second, so it gets a short retry that does not count as a failed reconnect attempt.
+    private volatile bool _noStreamExit;
+    private int _quickRetries;
     private Process? _process;
     private CancellationTokenSource? _cts;
     private Task? _task;
@@ -134,7 +139,9 @@ public abstract class FfmpegPipedCapture : IAudioCapture
         while (!ct.IsCancellationRequested)
         {
             _status = StreamStatus.Connecting;
-            Log.LogInformation("Подключение к {Target} (попытка {Attempt})", TargetDescription, _reconnectAttempt);
+            _noStreamExit = false;
+            if (ReconnectPolicy.ShouldLogAttempt(_reconnectAttempt))
+                Log.LogInformation("Подключение к {Target} (попытка {Attempt})", TargetDescription, _reconnectAttempt);
 
             Process? process = null;
             try
@@ -182,6 +189,16 @@ public abstract class FfmpegPipedCapture : IAudioCapture
 
             if (ct.IsCancellationRequested) break;
 
+            if (_noStreamExit && _quickRetries < ReconnectPolicy.MaxQuickRetries)
+            {
+                _quickRetries++;
+                _status = StreamStatus.Reconnecting;
+                Log.LogDebug("В потоке пока нет аудио — быстрый повтор {Retry}/{Max}", _quickRetries, ReconnectPolicy.MaxQuickRetries);
+                try { await Task.Delay(TimeSpan.FromSeconds(ReconnectPolicy.QuickRetryDelaySeconds), ct); }
+                catch (OperationCanceledException) { break; }
+                continue;
+            }
+
             _reconnectAttempt++;
             var maxAttempts = _getMaxReconnectAttempts();
             if (maxAttempts > 0 && _reconnectAttempt > maxAttempts)
@@ -193,8 +210,9 @@ public abstract class FfmpegPipedCapture : IAudioCapture
             }
 
             _status = StreamStatus.Reconnecting;
-            var delaySeconds = Math.Max(1, _getReconnectDelaySeconds());
-            Log.LogWarning("Поток отключён. Попытка переподключения {Attempt} через {Delay}с", _reconnectAttempt, delaySeconds);
+            var delaySeconds = ReconnectPolicy.DelaySeconds(_getReconnectDelaySeconds(), _reconnectAttempt);
+            if (ReconnectPolicy.ShouldLogAttempt(_reconnectAttempt))
+                Log.LogWarning("Поток отключён. Попытка переподключения {Attempt} через {Delay}с", _reconnectAttempt, delaySeconds);
             try { await Task.Delay(TimeSpan.FromSeconds(delaySeconds), ct); }
             catch (OperationCanceledException) { break; }
         }
@@ -235,9 +253,10 @@ public abstract class FfmpegPipedCapture : IAudioCapture
             // let a persistently bad target loop forever regardless of ReconnectMaxAttempts.
             if (_reconnectAttempt > 0)
             {
-                Log.LogInformation("Переподключение к {Target} выполнено", TargetDescription);
+                Log.LogInformation("Переподключение к {Target} выполнено (после {Attempts} попыток)", TargetDescription, _reconnectAttempt);
                 _reconnectAttempt = 0;
             }
+            _quickRetries = 0;
 
             var nSamples = totalRead / BytesPerSample;
             var nFrames = nSamples / channels;
@@ -261,10 +280,14 @@ public abstract class FfmpegPipedCapture : IAudioCapture
         {
             string stderr;
             lock (_stderrLock) { stderr = _stderrBuffer.ToString(); }
-            if (string.IsNullOrWhiteSpace(stderr))
-                Log.LogWarning("FFmpeg завершился с кодом {Code}", process.ExitCode);
-            else
-                Log.LogWarning("FFmpeg завершился с кодом {Code}. Stderr: {Stderr}", process.ExitCode, stderr.Trim());
+            _noStreamExit = stderr.Contains("matches no streams", StringComparison.Ordinal);
+            if (ReconnectPolicy.ShouldLogAttempt(_reconnectAttempt + 1))
+            {
+                if (string.IsNullOrWhiteSpace(stderr))
+                    Log.LogWarning("FFmpeg завершился с кодом {Code}", process.ExitCode);
+                else
+                    Log.LogWarning("FFmpeg завершился с кодом {Code}. Stderr: {Stderr}", process.ExitCode, stderr.Trim());
+            }
         }
     }
 

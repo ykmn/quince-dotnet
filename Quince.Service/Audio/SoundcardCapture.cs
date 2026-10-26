@@ -258,9 +258,10 @@ public sealed class SoundcardCapture : IAudioCapture
             }
 
             _status = StreamStatus.Reconnecting;
-            var delaySeconds = Math.Max(1, _getReconnectDelaySeconds());
-            _log.LogWarning("Устройство записи отключено. Попытка переподключения {Attempt} через {Delay}с",
-                _reconnectAttempt, delaySeconds);
+            var delaySeconds = ReconnectPolicy.DelaySeconds(_getReconnectDelaySeconds(), _reconnectAttempt);
+            if (ReconnectPolicy.ShouldLogAttempt(_reconnectAttempt))
+                _log.LogWarning("Устройство записи отключено. Попытка переподключения {Attempt} через {Delay}с",
+                    _reconnectAttempt, delaySeconds);
             try { await Task.Delay(TimeSpan.FromSeconds(delaySeconds), ct); }
             catch (OperationCanceledException) { break; }
         }

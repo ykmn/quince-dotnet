@@ -8,7 +8,7 @@ public sealed record FolderUsage(long Bytes, DateTimeOffset ScannedAt);
 /// <summary>Version 1 monitoring contract. Codes are mapped to labels by the Zabbix template.</summary>
 public sealed record ChannelTelemetry(string Id, string Name, string SourceType, int Recording,
     int Metadata, int Audio, int Error, int DiskAvailable, double? ForecastPct, long? UsedBytes,
-    long? ForecastBytes, long? DiskScannedAt)
+    long? ForecastBytes, long? DiskScannedAt, int ReconnectAttempt = 0)
 {
     public static ChannelTelemetry Create(ChannelConfig config, EngineStatus? status,
         DateTimeOffset? metadataReceivedAt, LevelReading? level, DateTimeOffset? levelAt,
@@ -32,6 +32,6 @@ public sealed record ChannelTelemetry(string Id, string Name, string SourceType,
         return new(config.MonitoringId, config.Name, config.Source.Type,
             recording ? 1 : 0, metadata, audio, status?.HasError == true ? 1 : 0,
             fresh ? 1 : 0, pct, fresh ? usage!.Bytes : null, total,
-            usage?.ScannedAt.ToUnixTimeSeconds());
+            usage?.ScannedAt.ToUnixTimeSeconds(), status?.ReconnectAttempt ?? 0);
     }
 }

@@ -463,6 +463,61 @@
                 ]
               },
               {
+                "uuid": "61da1074fba94233a4d6e31c9a51e897",
+                "name": "{#CHANNEL.NAME}: Переподключение",
+                "type": "DEPENDENT",
+                "key": "quince.channel.reconnect[{#CHANNEL.ID}]",
+                "delay": "0",
+                "history": "7d",
+                "value_type": "UNSIGNED",
+                "trends": "90d",
+                "preprocessing": [
+                  {
+                    "type": "JSONPATH",
+                    "parameters": [
+                      "$.channels[?(@.id == \"{#CHANNEL.ID}\")].reconnect_attempt.first()"
+                    ],
+                    "error_handler": "DISCARD_VALUE"
+                  }
+                ],
+                "master_item": {
+                  "key": "quince.monitoring.get"
+                },
+                "tags": [
+                  {
+                    "tag": "Application",
+                    "value": "Quince"
+                  },
+                  {
+                    "tag": "Channel",
+                    "value": "{#CHANNEL.NAME}"
+                  },
+                  {
+                    "tag": "Source",
+                    "value": "{#CHANNEL.SOURCE}"
+                  }
+                ],
+                "trigger_prototypes": [
+                  {
+                    "uuid": "86c9bedcb22f498289dc3b5239feb2d0",
+                    "name": "{#CHANNEL.NAME}: нет связи с источником (переподключение)",
+                    "expression": "(min(/Quince by Zabbix agent/quince.channel.reconnect[{#CHANNEL.ID}],{$QUINCE.RECONNECT.WINDOW})>0) and nodata(/Quince by Zabbix agent/quince.monitoring.timestamp,{$QUINCE.NODATA})=0 and fuzzytime(/Quince by Zabbix agent/quince.monitoring.timestamp,{$QUINCE.NODATA})=1 and nodata(/Quince by Zabbix agent/quince.channel.reconnect[{#CHANNEL.ID}],{$QUINCE.NODATA})=0",
+                    "priority": "AVERAGE",
+                    "tags": [
+                      {
+                        "tag": "Application",
+                        "value": "Quince"
+                      },
+                      {
+                        "tag": "Channel",
+                        "value": "{#CHANNEL.NAME}"
+                      }
+                    ],
+                    "description": "Канал непрерывно переподключается к источнику дольше {$QUINCE.RECONNECT.WINDOW}."
+                  }
+                ]
+              },
+              {
                 "uuid": "61ac7b4da3a643e7803495c49c0b6bb6",
                 "name": "{#CHANNEL.NAME}: Объём папки доступен",
                 "type": "DEPENDENT",
@@ -724,6 +779,11 @@
             "macro": "{$QUINCE.PROBLEM.WINDOW}",
             "value": "2m",
             "description": "Окно проверки остановки записи, тишины и отсутствия метаданных."
+          },
+          {
+            "macro": "{$QUINCE.RECONNECT.WINDOW}",
+            "value": "10m",
+            "description": "Как долго канал должен непрерывно переподключаться к источнику, чтобы сработал триггер."
           },
           {
             "macro": "{$QUINCE.RECORDING.REQUIRED}",
