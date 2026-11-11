@@ -333,7 +333,8 @@
   "resourceMonitor.memoryUnit": "MB",
 
   "usageForecast.title": "Disk usage forecast",
-  "usageForecast.hint": "Projected recording size for every channel at its current bitrate/format and retention settings, plus how much space is already used. Folders are scanned in parallel, and it could take a while with many channels.",
+  "usageForecast.summaryLabel": "Projected size",
+  "usageForecast.hint": "Projected recording size for every channel at its current bitrate/format and retention settings, adjusted by a 1.045 correction factor based on actual recording sizes, plus how much space is already used. Folders are scanned in parallel, and it could take a while with many channels.",
   "usageForecast.refreshAll": "🔄 Refresh all",
   "usageForecast.refreshAllTitle": "Rescan the current used size for every channel",
   "usageForecast.refreshRowTitle": "Rescan the current used size for this channel",
@@ -354,6 +355,12 @@
   "usageForecast.summaryNoProjected": "{0} used (no projection — every channel has unlimited retention)",
   "usageForecast.summaryScanningCount": "scanning: {0} of {1} channels…",
   "usageForecast.caveatUnlimited": "Retention is unlimited — excluded from the projected total (only their current usage is counted): {0}.",
+  "usageForecast.diskSummaryTitle": "Free space by disk",
+  "usageForecast.diskSummaryHint": "The post-forecast estimate accounts only for growth in channel folders; space used by other files is already reflected in the current free space. Channels without a retention limit have no finite remaining-space estimate.",
+  "usageForecast.diskAvailable": "Free now: {0} of {1}",
+  "usageForecast.diskAfterForecast": "Free after forecast: {0}",
+  "usageForecast.diskShortage": "Shortfall after forecast: {0}",
+  "usageForecast.diskAfterForecastUnknown": "Remaining space after forecast is unknown",
   "usageForecast.noChannels": "No channels configured.",
 
   "app.notFound": "Page not found."

@@ -17,7 +17,7 @@
         {
             <div class="usage-forecast-summary">
                 <div class="usage-forecast-summary-row">
-                    <span class="usage-forecast-summary-label">@Loc["usageForecast.title"]</span>
+                    <span class="usage-forecast-summary-label">@Loc["usageForecast.summaryLabel"]</span>
                     <span class="usage-forecast-summary-figs">
                         @SummaryText
                         @if (ScanningCount > 0)
@@ -35,8 +35,29 @@
                 }
             </div>
 
+            <section class="usage-forecast-disks">
+                <h3>@Loc["usageForecast.diskSummaryTitle"]</h3>
+                <p class="usage-forecast-disk-hint">@Loc["usageForecast.diskSummaryHint"]</p>
+                @foreach (var disk in _disks)
+                {
+                    <div class="usage-forecast-disk">
+                        <div class="usage-forecast-summary-row">
+                            <span class="usage-forecast-summary-label">@(string.IsNullOrWhiteSpace(disk.Root) ? "—" : disk.Root)</span>
+                            <span class="usage-forecast-summary-figs">@DiskAvailableText(disk)</span>
+                        </div>
+                        @if (disk.TotalBytes is not null && disk.AvailableBytes is not null && ProjectedGrowthBytes(disk) is not null)
+                        {
+                            <div class="disk-usage-track">
+                                <div class="disk-usage-fill @DiskForecastZoneClass(disk)" style="width: @(DiskForecastFillPercentText(disk))%;"></div>
+                            </div>
+                            <div class="usage-forecast-summary-figs usage-forecast-disk-after">@DiskAfterForecastText(disk)</div>
+                        }
+                    </div>
+                }
+            </section>
+
             <div class="usage-forecast-toolbar">
-                <button type="button" class="btn btn-small" @onclick="RefreshAllAsync" disabled="@(ScanningCount > 0)"
+                <button type="button" class="btn btn-small" @onclick="RefreshAllAsync" disabled="@IsScanning"
                         title="@Loc["usageForecast.refreshAllTitle"]">
                     @Loc["usageForecast.refreshAll"]
                 </button>
@@ -99,8 +120,20 @@
     private sealed class ForecastRow
     {
         public required ChannelConfig Config { get; init; }
+        public required string DiskRoot { get; init; }
         public bool Scanning { get; set; } = true;
         public long? UsedBytes { get; set; }
+        public bool TimedOut { get; set; }
+        public string? Error { get; set; }
+    }
+
+    private sealed class ForecastDisk
+    {
+        public required string Root { get; init; }
+        public required List<ForecastRow> Rows { get; init; }
+        public bool Scanning { get; set; } = true;
+        public long? TotalBytes { get; set; }
+        public long? AvailableBytes { get; set; }
         public bool TimedOut { get; set; }
         public string? Error { get; set; }
     }
@@ -108,25 +141,36 @@
     private static readonly TimeSpan ScanTimeout = TimeSpan.FromSeconds(20);
 
     private List<ForecastRow> _rows = new();
+    private List<ForecastDisk> _disks = new();
 
     protected override void OnInitialized()
     {
         _rows = ChannelManager.Channels
             .OrderBy(c => c.Name, StringComparer.OrdinalIgnoreCase)
-            .Select(c => new ForecastRow { Config = c })
+            .Select(c => new ForecastRow { Config = c, DiskRoot = DiskUsageEstimator.GetStorageRoot(c.SavePath) })
+            .ToList();
+        _disks = _rows
+            .GroupBy(r => r.DiskRoot, StringComparer.OrdinalIgnoreCase)
+            .Select(g => new ForecastDisk { Root = g.Key, Rows = g.ToList() })
             .ToList();
         _ = RefreshAllAsync();
     }
 
     private int ScanningCount => _rows.Count(r => r.Scanning);
+    private bool IsScanning => ScanningCount > 0 || _disks.Any(d => d.Scanning);
 
     /// <summary>Kicks off every row's scan at once — <see cref="DiskUsageEstimator.ScanFolderSizeAsync"/>
     /// runs the actual directory walk on the thread pool via <c>Task.Run</c>, so this gets real
     /// parallelism across channels rather than scanning one folder at a time (which could otherwise
     /// take minutes across a few dozen channels on a busy/slow save disk).</summary>
-    private async Task RefreshAllAsync() => await Task.WhenAll(_rows.Select(RefreshRowAsync));
+    private async Task RefreshAllAsync() => await Task.WhenAll(
+        _rows.Select(RefreshRowCoreAsync).Concat(_disks.Select(RefreshDiskAsync)));
 
-    private async Task RefreshRowAsync(ForecastRow row)
+    private async Task RefreshRowAsync(ForecastRow row) => await Task.WhenAll(
+        RefreshRowCoreAsync(row),
+        RefreshDiskAsync(_disks.First(d => d.Root.Equals(row.DiskRoot, StringComparison.OrdinalIgnoreCase))));
+
+    private async Task RefreshRowCoreAsync(ForecastRow row)
     {
         row.Scanning = true;
         row.TimedOut = false;
@@ -141,7 +185,72 @@
         StateHasChanged();
     }
 
+    private async Task RefreshDiskAsync(ForecastDisk disk)
+    {
+        disk.Scanning = true;
+        disk.TimedOut = false;
+        disk.Error = null;
+        StateHasChanged();
+
+        var result = await DiskUsageEstimator.ScanDiskSpaceAsync(disk.Root, ScanTimeout);
+        disk.Scanning = false;
+        if (result.TimedOut) disk.TimedOut = true;
+        else if (result.Error is not null) disk.Error = result.Error;
+        else
+        {
+            disk.TotalBytes = result.TotalBytes;
+            disk.AvailableBytes = result.AvailableBytes;
+        }
+        StateHasChanged();
+    }
+
     private static string FormatGb(long bytes) => (bytes / (1024.0 * 1024 * 1024)).ToString("F2", CultureInfo.InvariantCulture);
+
+    private string DiskAvailableText(ForecastDisk disk)
+    {
+        if (disk.Scanning) return Loc["usageForecast.scanning"];
+        if (disk.TimedOut) return Loc["usageForecast.scanTimeout"];
+        if (disk.Error is not null) return Loc.T("usageForecast.scanError", disk.Error);
+        return disk.TotalBytes is long total && disk.AvailableBytes is long available
+            ? Loc.T("usageForecast.diskAvailable", Loc.T("usageForecast.gb", FormatGb(available)), Loc.T("usageForecast.gb", FormatGb(total)))
+            : Loc["usageForecast.notDetermined"];
+    }
+
+    private long? ProjectedGrowthBytes(ForecastDisk disk)
+    {
+        if (disk.Rows.Any(r => r.Config.RetentionDays <= 0 ||
+                               r.Scanning || r.TimedOut || r.Error is not null || r.UsedBytes is null))
+            return null;
+
+        var projected = disk.Rows.Sum(r => ProjectedBytes(r) ?? 0);
+        var currentlyUsed = disk.Rows.Sum(r => r.UsedBytes ?? 0);
+        return Math.Max(0, projected - currentlyUsed);
+    }
+
+    private string DiskAfterForecastText(ForecastDisk disk)
+    {
+        if (disk.TotalBytes is not long || disk.AvailableBytes is not long available ||
+            ProjectedGrowthBytes(disk) is not long growth)
+            return Loc["usageForecast.diskAfterForecastUnknown"];
+
+        var remaining = available - growth;
+        return remaining >= 0
+            ? Loc.T("usageForecast.diskAfterForecast", Loc.T("usageForecast.gb", FormatGb(remaining)))
+            : Loc.T("usageForecast.diskShortage", Loc.T("usageForecast.gb", FormatGb(-remaining)));
+    }
+
+    private double DiskForecastFillPercent(ForecastDisk disk)
+    {
+        if (disk.TotalBytes is not long total || disk.AvailableBytes is not long available ||
+            ProjectedGrowthBytes(disk) is not long growth || total <= 0)
+            return 0;
+        return Math.Clamp((total - available + growth) / (double)total * 100.0, 0, 100);
+    }
+
+    private string DiskForecastFillPercentText(ForecastDisk disk) =>
+        DiskForecastFillPercent(disk).ToString("F2", CultureInfo.InvariantCulture);
+
+    private string DiskForecastZoneClass(ForecastDisk disk) => ZoneClass(DiskForecastFillPercent(disk));
 
     private string UsedText(ForecastRow row)
     {

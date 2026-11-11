@@ -1763,6 +1763,7 @@ body {
 .usage-forecast-summary-figs {
     color: var(--text-secondary);
     text-align: right;
+    font-size: 13px;
 }
 
 .usage-forecast-caveat {
@@ -1771,6 +1772,33 @@ body {
     color: var(--text-faint);
     border-top: 1px dashed var(--border-strong);
     padding-top: 6px;
+}
+
+.usage-forecast-disks {
+    margin: 10px 0;
+    padding: 10px 12px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--surface-alt);
+}
+
+.usage-forecast-disks h3 {
+    margin: 0 0 4px;
+    font-size: 13px;
+}
+
+.usage-forecast-disk-hint {
+    margin: 0 0 8px;
+    color: var(--text-faint);
+    font-size: 11.5px;
+}
+
+.usage-forecast-disk + .usage-forecast-disk {
+    margin-top: 10px;
+}
+
+.usage-forecast-disk-after {
+    margin-top: 3px;
 }
 
 .usage-forecast-toolbar {

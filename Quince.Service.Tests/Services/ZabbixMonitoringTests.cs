@@ -64,7 +64,7 @@ public class ZabbixMonitoringTests
     }
 
     [Theory]
-    [InlineData(800_582_400, 92.66)]
+    [InlineData(800_582_400, 88.67)]
     [InlineData(1_728_000_000, 100)]
     [InlineData(0, 0)]
     public void ForecastMatchesCard(long used, double expected)
