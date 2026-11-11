@@ -62,7 +62,17 @@ public class DiskUsageEstimatorTests : IDisposable
         var config = CustomMp3(bitrateKbps: 96, retentionDays: 10);
         var bytesPerSecond = DiskUsageEstimator.EstimateBytesPerSecond(config);
 
-        Assert.Equal(bytesPerSecond * 10 * 86400L, DiskUsageEstimator.EstimateTotalBytes(config));
+        Assert.Equal((long)(bytesPerSecond * 10 * 86400d * 1.045), DiskUsageEstimator.EstimateTotalBytes(config));
+    }
+
+    [Fact]
+    public void EstimateTotalBytes_AppliesMeasuredCorrectionToNinetyDayProjection()
+    {
+        var config = CustomMp3(bitrateKbps: 96, retentionDays: 90);
+
+        var projectedGiB = DiskUsageEstimator.EstimateTotalBytes(config)!.Value / Math.Pow(1024, 3);
+
+        Assert.Equal(90.81, projectedGiB, 2);
     }
 
     [Fact]
@@ -111,5 +121,28 @@ public class DiskUsageEstimatorTests : IDisposable
         Assert.False(result.TimedOut);
         Assert.Null(result.Error);
         Assert.Equal(0, result.Bytes);
+    }
+
+    [Fact]
+    public async Task ScanDiskSpaceAsync_ReturnsCapacityForContainingDrive()
+    {
+        var result = await DiskUsageEstimator.ScanDiskSpaceAsync(_tempDir, TimeSpan.FromSeconds(5));
+
+        Assert.False(result.TimedOut);
+        Assert.Null(result.Error);
+        Assert.Equal(Path.GetPathRoot(Path.GetFullPath(_tempDir)), result.Root);
+        Assert.True(result.TotalBytes > 0);
+        Assert.InRange(result.AvailableBytes!.Value, 0, result.TotalBytes!.Value);
+    }
+
+    [Fact]
+    public async Task ScanDiskSpaceAsync_EmptyPathReturnsVisibleError()
+    {
+        var result = await DiskUsageEstimator.ScanDiskSpaceAsync("", TimeSpan.FromSeconds(5));
+
+        Assert.False(result.TimedOut);
+        Assert.NotNull(result.Error);
+        Assert.Null(result.TotalBytes);
+        Assert.Null(result.AvailableBytes);
     }
 }
