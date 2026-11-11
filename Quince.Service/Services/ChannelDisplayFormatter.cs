@@ -117,7 +117,7 @@ public static class ChannelDisplayFormatter
     }
 
     /// <summary>Splits the output line into its three joined segments so the channel card can mask
-    /// just <see cref="Path"/> on click, leaving format/quality/duration always visible.</summary>
+    /// just <see cref="Path"/> on click, leaving format/quality/duration and retention visible.</summary>
     public static (string FormatQuality, string Path, string Duration) FormatOutputParts(ChannelConfig config, LocalizationService loc)
     {
         // "original" mode resolves its actual codec/extension from the source (see
@@ -129,8 +129,24 @@ public static class ChannelDisplayFormatter
             ? $"{outFmt.BitrateKbps}kbps"
             : $"{outFmt.BitDepth}bit";
         var path = config.SavePath ?? "";
-        var duration = FormatDuration(config.FileDurationMinutes * 60, loc);
+        var duration = $"{FormatDuration(config.FileDurationMinutes * 60, loc)} ⤫ {FormatRetention(config.RetentionDays, loc)}";
         return ($"{fmt} {quality}", path, duration);
+    }
+
+    private static string FormatRetention(int days, LocalizationService loc)
+    {
+        if (days <= 0) return loc["usageForecast.retentionUnlimited"];
+
+        var unit = loc.Language == "ru"
+            ? days % 10 == 1 && days % 100 != 11
+                ? "channelCard.retentionDayOne"
+                : days % 10 is >= 2 and <= 4 && days % 100 is not (>= 12 and <= 14)
+                    ? "channelCard.retentionDayFew"
+                    : "channelCard.retentionDayMany"
+            : days == 1
+                ? "channelCard.retentionDayOne"
+                : "channelCard.retentionDayMany";
+        return $"{days} {loc[unit]}";
     }
 
     public static string FormatDuration(int seconds, LocalizationService loc)

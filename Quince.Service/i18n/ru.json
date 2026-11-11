@@ -7,6 +7,9 @@
   "common.unitHours": "ч",
   "common.unitMinutes": "мин",
   "common.unitSeconds": "с",
+  "channelCard.retentionDayOne": "день",
+  "channelCard.retentionDayFew": "дня",
+  "channelCard.retentionDayMany": "дней",
 
   "topbar.homeTitle": "На главную (список каналов)",
   "topbar.menuTitle": "Меню",

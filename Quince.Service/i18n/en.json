@@ -7,6 +7,9 @@
   "common.unitHours": "h",
   "common.unitMinutes": "min",
   "common.unitSeconds": "s",
+  "channelCard.retentionDayOne": "day",
+  "channelCard.retentionDayFew": "days",
+  "channelCard.retentionDayMany": "days",
 
   "topbar.homeTitle": "Go to home (channel list)",
   "topbar.menuTitle": "Menu",
